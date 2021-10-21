@@ -179,7 +179,7 @@ class RowMatrix : public Matrix<T> {
    * @throws OUT_OF_RANGE if `source` is incorrect size
    */
   void FillFrom(const std::vector<T> &source) override {
-    if (source.size() != static_cast<size_t>(this->rows_ * this->cols_)) {
+    if (static_cast<int>(source.size()) != (this->rows_ * this->cols_)) {
       throw Exception{ExceptionType::OUT_OF_RANGE, "The size of the given vector doesn't fit in."};
     }
     for (size_t i = 0; i < source.size(); ++i) {
