@@ -14,6 +14,8 @@
 
 #include <list>
 #include <mutex>  // NOLINT
+#include <shared_mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "buffer/replacer.h"
@@ -46,7 +48,39 @@ class LRUReplacer : public Replacer {
   size_t Size() override;
 
  private:
-  // TODO(student): implement me!
+  // TODO(student): implement me! done
+
+  /**
+   * The node inside the lru list
+   */
+  struct LRUNode {
+    LRUNode *prev;
+    LRUNode *next;
+    frame_id_t frame_id;
+
+    LRUNode();
+    LRUNode(frame_id_t frm_id);
+  };
+
+  size_t num_pages_;
+  LRUNode *dummy_;
+  std::unordered_map<frame_id_t, LRUNode *> lru_map_;
+
+  mutable std::shared_mutex mutex_;
+
+  /**
+   * @brief Delete the node in the lru list.
+   *
+   * @param node the node to be deleted.
+   */
+  void ListDelete(LRUNode *node);
+
+  /**
+   * @brief Insert the node into the lru list.
+   *
+   * @param node the node to be inserted
+   */
+  void ListInsert(LRUNode *node);
 };
 
 }  // namespace bustub

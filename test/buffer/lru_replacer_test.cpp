@@ -15,11 +15,23 @@
 #include <vector>
 
 #include "buffer/lru_replacer.h"
+#include "common/logger.h"
 #include "gtest/gtest.h"
 
 namespace bustub {
 
-TEST(LRUReplacerTest, DISABLED_SampleTest) {
+TEST(LRUReplacerTest, OverflowTest) {
+  LRUReplacer lru_replacer(2);
+
+  // unpin(3) should fail
+  lru_replacer.Unpin(1);
+  lru_replacer.Unpin(2);
+  lru_replacer.Unpin(3);
+
+  EXPECT_EQ(2, lru_replacer.Size());
+}
+
+TEST(LRUReplacerTest, SampleTest) {
   LRUReplacer lru_replacer(7);
 
   // Scenario: unpin six elements, i.e. add them to the replacer.
@@ -57,6 +69,103 @@ TEST(LRUReplacerTest, DISABLED_SampleTest) {
   EXPECT_EQ(6, value);
   lru_replacer.Victim(&value);
   EXPECT_EQ(4, value);
+
+  // find a victim from an empty lru, should have no effects
+  lru_replacer.Victim(&value);
+  EXPECT_EQ(4, value);
+}
+
+TEST(LRUReplacerTest, MultiThreadPinUnpinTest) {
+  LRUReplacer lru_replacer(1024);
+
+  auto unpin_func = [&lru_replacer](frame_id_t frame_id) {
+    std::stringstream ss;
+    ss << std::this_thread::get_id();
+    LOG_INFO("Thread %s tries to unpin the frames starting from id = %u", ss.str().c_str(), frame_id);
+    for (frame_id_t i = frame_id; i < frame_id + 256; i++) {
+      lru_replacer.Unpin(i);
+    }
+  };
+
+  std::thread th1(unpin_func, 0);
+  std::thread th2(unpin_func, 256);
+  std::thread th3(unpin_func, 512);
+  std::thread th4(unpin_func, 768);
+
+  th1.join();
+  th2.join();
+  th3.join();
+  th4.join();
+
+  EXPECT_EQ(1024, lru_replacer.Size());
+
+  auto pin_func = [&lru_replacer](frame_id_t frame_id) {
+    std::stringstream ss;
+    ss << std::this_thread::get_id();
+    LOG_INFO("Thread %s tries to pin the frames starting from id = %u", ss.str().c_str(), frame_id);
+    for (frame_id_t i = frame_id; i < frame_id + 256; i++) {
+      lru_replacer.Pin(i);
+    }
+  };
+
+  std::thread th5(pin_func, 0);
+  std::thread th6(pin_func, 256);
+  std::thread th7(pin_func, 512);
+  std::thread th8(pin_func, 768);
+
+  th5.join();
+  th6.join();
+  th7.join();
+  th8.join();
+
+  EXPECT_EQ(0, lru_replacer.Size());
+}
+
+TEST(LRUReplacerTest, MultiThreadUnpinVictimTest) {
+  LRUReplacer lru_replacer(1024);
+
+  auto unpin_func = [&lru_replacer](frame_id_t frame_id) {
+    std::stringstream ss;
+    ss << std::this_thread::get_id();
+    LOG_INFO("Thread %s tries to unpin the frames starting from id = %u", ss.str().c_str(), frame_id);
+    for (frame_id_t i = frame_id; i < frame_id + 256; i++) {
+      lru_replacer.Unpin(i);
+    }
+  };
+
+  std::thread th1(unpin_func, 0);
+  std::thread th2(unpin_func, 256);
+  std::thread th3(unpin_func, 512);
+  std::thread th4(unpin_func, 768);
+
+  th1.join();
+  th2.join();
+  th3.join();
+  th4.join();
+
+  EXPECT_EQ(1024, lru_replacer.Size());
+
+  auto victim_func = [&lru_replacer]() {
+    std::stringstream ss;
+    ss << std::this_thread::get_id();
+    LOG_INFO("Thread %s tries to victim 256 frames", ss.str().c_str());
+    int value;
+    for (frame_id_t i = 0; i < 256; i++) {
+      lru_replacer.Victim(&value);
+    }
+  };
+
+  std::thread th5(victim_func);
+  std::thread th6(victim_func);
+  std::thread th7(victim_func);
+  std::thread th8(victim_func);
+
+  th5.join();
+  th6.join();
+  th7.join();
+  th8.join();
+
+  EXPECT_EQ(0, lru_replacer.Size());
 }
 
 }  // namespace bustub
