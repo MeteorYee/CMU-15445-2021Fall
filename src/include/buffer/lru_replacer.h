@@ -15,7 +15,6 @@
 #include <list>
 #include <mutex>  // NOLINT
 #include <shared_mutex>
-#include <unordered_map>
 #include <vector>
 
 #include "buffer/replacer.h"
@@ -63,8 +62,9 @@ class LRUReplacer : public Replacer {
   };
 
   size_t num_pages_;
+  size_t frame_count_;
   LRUNode *dummy_;
-  std::unordered_map<frame_id_t, LRUNode *> lru_map_;
+  std::vector<LRUNode *> lru_vec_;
 
   mutable std::shared_mutex mutex_;
 
@@ -81,6 +81,15 @@ class LRUReplacer : public Replacer {
    * @param node the node to be inserted
    */
   void ListInsert(LRUNode *node);
+
+  /**
+   * @brief Check if the passed frame id is valid
+   *
+   * @param fid the frame id
+   * @return true if it is valid
+   * @return false otherwise
+   */
+  bool IsIdValid(frame_id_t fid);
 };
 
 }  // namespace bustub

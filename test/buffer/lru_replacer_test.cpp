@@ -20,15 +20,23 @@
 
 namespace bustub {
 
+// TODO: the domain of the frame??? [0, num_pages) or [1, num_pages]
 TEST(LRUReplacerTest, OverflowTest) {
   LRUReplacer lru_replacer(2);
 
   // unpin(3) should fail
+  lru_replacer.Unpin(0);
   lru_replacer.Unpin(1);
-  lru_replacer.Unpin(2);
   lru_replacer.Unpin(3);
 
   EXPECT_EQ(2, lru_replacer.Size());
+}
+
+TEST(LRUReplacerTest, InvalidIDTest) {
+  LRUReplacer lru_replacer(3);
+  lru_replacer.Unpin(1);
+  lru_replacer.Unpin(-1);
+  lru_replacer.Unpin(3);
 }
 
 TEST(LRUReplacerTest, SampleTest) {
