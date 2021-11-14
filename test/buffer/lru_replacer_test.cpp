@@ -20,7 +20,6 @@
 
 namespace bustub {
 
-// TODO: the domain of the frame??? [0, num_pages) or [1, num_pages]
 TEST(LRUReplacerTest, OverflowTest) {
   LRUReplacer lru_replacer(2);
 

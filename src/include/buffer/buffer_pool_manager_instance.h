@@ -14,6 +14,7 @@
 
 #include <list>
 #include <mutex>  // NOLINT
+#include <shared_mutex>
 #include <unordered_map>
 
 #include "buffer/buffer_pool_manager.h"
@@ -121,6 +122,17 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    */
   void ValidatePageId(page_id_t page_id) const;
 
+  void ResetPage(Page *page, const page_id_t new_page_id);
+
+  void ResetPageMeta(Page *page, const page_id_t new_page_id);
+
+  frame_id_t FreeListGetFrame(page_id_t *page_id);
+
+  frame_id_t ReplacerGetFrame(page_id_t *page_id);
+
+  /* Invalid frame id */
+  static constexpr frame_id_t INVALID_FRAME_ID = -1;
+
   /** Number of pages in the buffer pool. */
   const size_t pool_size_;
   /** How many instances are in the parallel BPM (if present, otherwise just 1 BPI) */
@@ -142,7 +154,23 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   Replacer *replacer_;
   /** List of free pages. */
   std::list<frame_id_t> free_list_;
-  /** This latch protects shared data structures. We recommend updating this comment to describe what it protects. */
+  /**
+   * This latch protects shared data structures. We recommend updating this comment to describe what it protects.
+   *
+   * In the implementation, it only protects the coherence of the free list. To illustrate, the page table is
+   * protected by the *table_mutex_* decalred below. The *replacer_* is thread-safe per se. Therefore, only the
+   * free list needs to be protected by the latch.
+   */
   std::mutex latch_;
+  /**
+   * This shared mutex protects the consistency of page table.
+   *
+   * The reason adding this mutex is to achieve a finer granularity of concurrency control comparing to the project
+   * itself required. For example, the starter code here just gave us one *latch_* for the sake of a thread-safe
+   * buffer pool (if I understand it correctly). In that way, we are going to protect the buffer pool manager as a
+   * whole in order to prevent any race conditions. However, we can split the buffer manager into several parts and
+   * protect them respectively, through which we can get a higher throughput of the buffer pool manager.
+   */
+  mutable std::shared_mutex table_mutex_;
 };
 }  // namespace bustub

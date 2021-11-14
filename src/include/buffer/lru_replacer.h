@@ -61,11 +61,16 @@ class LRUReplacer : public Replacer {
     LRUNode(frame_id_t frm_id);
   };
 
+  /** the number of pages */
   size_t num_pages_;
+  /** the counter of frames */
   size_t frame_count_;
+  /** the dummy node of the lru list */
   LRUNode *dummy_;
+  /** the vector which stores the pointers to LRUNodes */
   std::vector<LRUNode *> lru_vec_;
 
+  /** protects the state of LRUReplacer */
   mutable std::shared_mutex mutex_;
 
   /**

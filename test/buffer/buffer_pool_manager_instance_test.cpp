@@ -10,18 +10,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "buffer/buffer_pool_manager_instance.h"
 #include <cstdio>
 #include <random>
 #include <string>
+
 #include "buffer/buffer_pool_manager.h"
+#include "buffer/buffer_pool_manager_instance.h"
+#include "common/logger.h"
 #include "gtest/gtest.h"
 
 namespace bustub {
 
 // NOLINTNEXTLINE
 // Check whether pages containing terminal characters can be recovered
-TEST(BufferPoolManagerInstanceTest, DISABLED_BinaryDataTest) {
+TEST(BufferPoolManagerInstanceTest, BinaryDataTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
 
@@ -86,7 +88,7 @@ TEST(BufferPoolManagerInstanceTest, DISABLED_BinaryDataTest) {
 }
 
 // NOLINTNEXTLINE
-TEST(BufferPoolManagerInstanceTest, DISABLED_SampleTest) {
+TEST(BufferPoolManagerInstanceTest, SampleTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
 
@@ -140,5 +142,7 @@ TEST(BufferPoolManagerInstanceTest, DISABLED_SampleTest) {
   delete bpm;
   delete disk_manager;
 }
+
+// TODO: write test cases!
 
 }  // namespace bustub

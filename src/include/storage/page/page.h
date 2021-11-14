@@ -60,6 +60,12 @@ class Page {
   /** Release the page read latch. */
   inline void RUnlatch() { rwlatch_.RUnlock(); }
 
+  /** Acquire the lock which protects the page meta info. */
+  inline void MetaLock() { meta_latch_.WLock(); }
+
+  /** Release the page meta lock. */
+  inline void MetaUnLock() { meta_latch_.WUnlock(); }
+
   /** @return the page LSN. */
   inline lsn_t GetLSN() { return *reinterpret_cast<lsn_t *>(GetData() + OFFSET_LSN); }
 
@@ -86,8 +92,21 @@ class Page {
   int pin_count_ = 0;
   /** True if the page is dirty, i.e. it is different from its corresponding page on disk. */
   bool is_dirty_ = false;
+  /** True only when the page is first dirtied, i.e. when it becomes dirty for the first time.
+   * N.B. This addition contradicts the requirement of cmu-15445-fall-2021 project 1.
+   */
+  bool just_dirtied = false;
   /** Page latch. */
   ReaderWriterLatch rwlatch_;
+  /** Page meta latch.
+   *
+   * The latch is used to protect the page's meta info, such as pin_count_, is_dirty, page_id, etc. N.B. This revision
+   * violates the requirement of the cmu-15445-fall-2021 project 1. If you are a CMU student, refrain from doing this
+   * (altough you shouldn't even look at this :D). All in all, this latch facilitates a more efficient concurrency
+   * control upon page objects. In theory, We can use the page latch to protect the meta info, but that's going to
+   * hurt the performance of accessing the page data itself.
+   */
+  ReaderWriterLatch meta_latch_;
 };
 
 }  // namespace bustub
