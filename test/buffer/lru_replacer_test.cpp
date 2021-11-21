@@ -36,6 +36,15 @@ TEST(LRUReplacerTest, InvalidIDTest) {
   lru_replacer.Unpin(1);
   lru_replacer.Unpin(-1);
   lru_replacer.Unpin(3);
+
+  EXPECT_EQ(1, lru_replacer.Size());
+
+  lru_replacer.Pin(0);
+  lru_replacer.Pin(-1);
+  lru_replacer.Pin(3);
+  lru_replacer.Pin(1);
+
+  EXPECT_EQ(0, lru_replacer.Size());
 }
 
 TEST(LRUReplacerTest, SampleTest) {

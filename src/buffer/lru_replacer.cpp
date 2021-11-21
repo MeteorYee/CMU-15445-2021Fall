@@ -22,7 +22,7 @@ LRUReplacer::LRUNode::LRUNode() { frame_id = -1; }
 LRUReplacer::LRUNode::LRUNode(frame_id_t frm_id) : frame_id{frm_id} {}
 
 LRUReplacer::LRUReplacer(size_t num_pages) : num_pages_{num_pages} {
-  dummy_ = new LRUNode(-1);
+  dummy_ = new LRUNode();
   dummy_->next = dummy_;
   dummy_->prev = dummy_;
 
