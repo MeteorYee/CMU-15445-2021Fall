@@ -16,7 +16,9 @@
 #include <iostream>
 
 #include "common/config.h"
+#include "common/logger.h"
 #include "common/rwlatch.h"
+#include "common/spinlock.h"
 
 namespace bustub {
 
@@ -61,16 +63,27 @@ class Page {
   inline void RUnlatch() { rwlatch_.RUnlock(); }
 
   /** Acquire the lock which protects the page meta info. */
-  inline void MetaLock() { meta_latch_.WLock(); }
+  inline void MetaLock() { meta_latch_.Lock(); }
 
   /** Release the page meta lock. */
-  inline void MetaUnLock() { meta_latch_.WUnlock(); }
+  inline void MetaUnLock() { meta_latch_.Unlock(); }
 
   /** @return the page LSN. */
   inline lsn_t GetLSN() { return *reinterpret_cast<lsn_t *>(GetData() + OFFSET_LSN); }
 
   /** Sets the page LSN. */
   inline void SetLSN(lsn_t lsn) { memcpy(GetData() + OFFSET_LSN, &lsn, sizeof(lsn_t)); }
+
+  /**
+   * @brief Mark the buffer page diirty when modifying the page. CAVEAT: The method should be
+   * invoked only under the protection of page's write latch.
+   */
+  void MarkPageDirty() {
+    MetaLock();
+    assert(pin_count_ > 0);
+    is_dirty_ = true;
+    MetaUnLock();
+  }
 
  protected:
   static_assert(sizeof(page_id_t) == 4);
@@ -92,10 +105,6 @@ class Page {
   int pin_count_ = 0;
   /** True if the page is dirty, i.e. it is different from its corresponding page on disk. */
   bool is_dirty_ = false;
-  /** True only when the page is first dirtied, i.e. when it becomes dirty for the first time.
-   * N.B. This addition contradicts the requirement of cmu-15445-fall-2021 project 1.
-   */
-  bool just_dirtied = false;
   /** Page latch. */
   ReaderWriterLatch rwlatch_;
   /** Page meta latch.
@@ -103,10 +112,10 @@ class Page {
    * The latch is used to protect the page's meta info, such as pin_count_, is_dirty, page_id, etc. N.B. This revision
    * violates the requirement of the cmu-15445-fall-2021 project 1. If you are a CMU student, refrain from doing this
    * (altough you shouldn't even look at this :D). All in all, this latch facilitates a more efficient concurrency
-   * control upon page objects. In theory, We can use the page latch to protect the meta info, but that's going to
-   * hurt the performance of accessing the page data itself.
+   * control upon page objects as it is a spin lock. In theory, We can use the page latch to protect the meta info,
+   * but that's going to hurt the performance of accessing the page data itself.
    */
-  ReaderWriterLatch meta_latch_;
+  SpinLock meta_latch_;
 };
 
 }  // namespace bustub

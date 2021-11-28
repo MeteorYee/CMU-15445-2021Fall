@@ -70,7 +70,6 @@ bool BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) {
     }
     old_pin_count = page->pin_count_;
     page->pin_count_++;
-    page->just_dirtied = false;
     page->MetaUnLock();
   }
 
@@ -78,20 +77,21 @@ bool BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) {
   if (old_pin_count == 0) {
     replacer_->Pin(frame_id);
   }
-
+  /* Someone might have already flushed the page, but we still flush the page once again
+   * regardlessly. This scenario can be optimized if we hace an IO lock to just let one
+   * reader flushing the page.*/
   page->RLatch();
+  // flush to disk
   disk_manager_->WritePage(page_id, page->data_);
-  page->RUnlatch();
 
-  // remember to unpin it
+  // remember to un-dirty and unpin it
   page->MetaLock();
+  page->is_dirty_ = false;
   old_pin_count = page->pin_count_;
   page->pin_count_--;
-  if (!page->just_dirtied) {
-    page->is_dirty_ = false;
-  }
-  // else: TBD: someone might've re-dirtied the page, may need re-flush it again?
   page->MetaUnLock();
+
+  page->RUnlatch();
 
   if (old_pin_count == 1) {
     replacer_->Unpin(frame_id);
@@ -100,7 +100,6 @@ bool BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) {
 }
 
 void BufferPoolManagerInstance::FlushAllPgsImp() {
-  // You can do it! - done
   // acquire the shared table lock to prevent any possible revisions
   Page *page = nullptr;
   bool is_dirty = false;
@@ -111,7 +110,6 @@ void BufferPoolManagerInstance::FlushAllPgsImp() {
     page->MetaLock();
     assert(page->GetPageId() == pair.first);
     is_dirty = page->is_dirty_;
-    page->just_dirtied = false;
     page->MetaUnLock();
 
     if (!is_dirty) {
@@ -120,21 +118,19 @@ void BufferPoolManagerInstance::FlushAllPgsImp() {
     }
 
     page->RLatch();
+    // flush to disk
     disk_manager_->WritePage(pair.first, page->data_);
-    page->RUnlatch();
-
+    // remember to un-dirty it
     page->MetaLock();
-    if (!page->just_dirtied) {
-      page->is_dirty_ = false;
-    }
-    // else: TBD: someone might've re-dirtied the page, may need re-flush it again?
+    page->is_dirty_ = false;
     page->MetaUnLock();
+    page->RUnlatch();
   }
   /* We don't bother doing pin and unpin up above because once the page table is protected by the table lock,
    * there is no chance for a page to be evicted. */
 }
 
-// TBD: the upper level logic should take care of page extending and prevent redundant new pages
+// CAVEAT: the upper level logic should take care of page extending and prevent redundant new pages
 Page *BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) {
   // 0.   Make sure you call AllocatePage!
   // 1.   If all the pages in the buffer pool are pinned, return nullptr.
@@ -212,7 +208,6 @@ Page *BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) {
   return nullptr;
 }
 
-// TBD: do we need to check and flush a potential dirty page?
 bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
   // 0.   Make sure you call DeallocatePage!
   // 1.   Search the page table for the requested page (P).
@@ -222,35 +217,76 @@ bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
 
   frame_id_t frame_id = INVALID_FRAME_ID;
   Page *page = nullptr;
-  int pin_count;
+  bool is_dirty = false;
 
   {
-    std::unique_lock lock(table_mutex_);
+    std::shared_lock lock(table_mutex_);
     if (page_table_.count(page_id) == 0) {
       // doesn't exist
-      return false;
+      return true;
     }
     frame_id = page_table_[page_id];
     page = pages_ + frame_id;
 
     page->MetaLock();
     assert(page->GetPageId() == page_id);
-    pin_count = page->pin_count_;
-    // check dirty ?
-    page->MetaUnLock();
-
-    if (pin_count > 0) {
+    if (page->pin_count_ > 0) {
       // already in use
+      page->MetaUnLock();
       return false;
     }
+    page->pin_count_++;
+    is_dirty = page->is_dirty_;
+    page->MetaUnLock();
+  }
+
+  /* Remove it from the lru list. Someone may have already victimed the frame, but we'd better
+   * play it safe. The pin count is guaranteed to be zero when it reads the frame in the
+   * page table. */
+  replacer_->Pin(frame_id);
+  if (is_dirty) {
+    InnerPageFlush(page);
+  }
+
+  {
+    std::unique_lock lock(table_mutex_);
+    assert(page_table_.count(page_id) > 0);
+
+    page->MetaLock();
+    if (page->pin_count_ > 1) {
+      // someone might have re-pinned it before we get here
+      page->MetaUnLock();
+      return false;
+    }
+
+    // reset the meta info
+    page->page_id_ = INVALID_PAGE_ID;
+    page->is_dirty_ = false;
+    page->pin_count_ = 0;
+    page->MetaUnLock();
 
     // delete the page
     page_table_.erase(page_id);
     DeallocatePage(page_id);
   }
+
+  /* N.B. we have already deleted it, no one will compete with the latch here actually. We still
+   * acquire it just to make sure this reset happen before any following readers/writers. If it's
+   * for the sake of performance, we can even leave out the step here because the page will be
+   * reset once again when it was retrieved from the free list. */
+  page->WLatch();
+  page->ResetMemory();
+  page->WUnlatch();
+
+  // return it back to the free list
+  {
+    std::scoped_lock lock(latch_);
+    free_list_.push_back(frame_id);
+  }
   return true;
 }
 
+// T.B.D We need MarkPageDirty(); is_dirty is of no use?
 bool BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) {
   frame_id_t frame_id = INVALID_FRAME_ID;
   Page *page = nullptr;
@@ -266,21 +302,18 @@ bool BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) {
   }
 
   // Unpin is not so critical as pin, hence we can put it outside the scope of table lock
-  int pin_count;
+  int old_pin_count;
   page->MetaLock();
-  assert(page->GetPageId() == page_id);
   if (page->pin_count_ <= 0) {
-    LOG_ERROR("Trying to unpin a page with pin_count <= 0, page id = %d.", page_id);
     page->MetaUnLock();
+    LOG_ERROR("Trying to unpin a page with pin_count <= 0, page_id = %d.", page_id);
     return false;
   }
+  old_pin_count = page->pin_count_;
   page->pin_count_--;
-  page->is_dirty_ = is_dirty;
-  page->just_dirtied = is_dirty;
-  pin_count = page->pin_count_;
   page->MetaUnLock();
 
-  if (pin_count == 0) {
+  if (old_pin_count == 1) {
     replacer_->Unpin(frame_id);
   }
   return true;
@@ -300,14 +333,25 @@ void BufferPoolManagerInstance::ValidatePageId(const page_id_t page_id) const {
 void BufferPoolManagerInstance::ResetPageMeta(Page *page, const page_id_t new_page_id) {
   page->page_id_ = new_page_id;
   page->is_dirty_ = false;
-  page->just_dirtied = false;
   // The page is just created or victimed, so we don't need to call replacer_.Pin() cuz it's
   // definitely not in the replacer.
   page->pin_count_ = 1;
 }
 
+void BufferPoolManagerInstance::InnerPageFlush(Page *page) {
+  page->RLatch();
+  disk_manager_->WritePage(page->page_id_, page->data_);
+  page->MetaLock();
+  assert(page->pin_count_ > 0);
+  page->is_dirty_ = false;
+  page->MetaUnLock();
+  page->RUnlatch();
+}
+
 frame_id_t BufferPoolManagerInstance::FreeListGetFrame(page_id_t *page_id) {
   frame_id_t frame_id;
+  std::stringstream ss;
+  ss << std::this_thread::get_id();
   {
     std::scoped_lock lock(latch_);
     if (free_list_.empty()) {
@@ -322,7 +366,7 @@ frame_id_t BufferPoolManagerInstance::FreeListGetFrame(page_id_t *page_id) {
   bool needs_io = true;
   {
     std::unique_lock lock(table_mutex_);
-    // this depends on the logics of DeallocatePage()
+    // this depends on the logics of DeallocatePage(), we may move it out of the scope of table lock
     if (new_page_id == INVALID_PAGE_ID) {
       new_page_id = AllocatePage();
       *page_id = new_page_id;
@@ -333,35 +377,55 @@ frame_id_t BufferPoolManagerInstance::FreeListGetFrame(page_id_t *page_id) {
 
       page->MetaLock();
       ResetPageMeta(page, new_page_id);
+      // LOG_INFO("buffer get from free list: thread: %s, page_id = %d, pin_count = %d, is_dirty = %d",
+      // ss.str().c_str(), new_page_id, page->pin_count_, page->is_dirty_);
       page->MetaUnLock();
 
       // N.B. we unlatch it after we release the table lock
       page->WLatch();
-    } else {
+    } else {  // This is guaranteed to be not the NewPage() case.
       // if someone has already done the same thing, then just insert the free frame back
-      std::scoped_lock lock(latch_);
-      free_list_.emplace_back(frame_id);
-      return page_table_[new_page_id];
-      // TBD: is it guaranteed this is not the NewPage() case? otherwise we will waste a page id.
+      {
+        std::scoped_lock lock(latch_);
+        free_list_.emplace_back(frame_id);
+      }
+
+      /* Yet another page, this is to differentiate with the page got from lru. The two variables are used when
+       * another thread has already initialized a victim for us. */
+      frame_id_t ya_frame_id = page_table_[new_page_id];
+      Page *ya_page = pages_ + ya_frame_id;
+      ya_page->MetaLock();
+      ya_page->pin_count_++;
+      ya_page->MetaUnLock();
+      return ya_frame_id;
     }
   }
 
+  page->ResetMemory();
   if (needs_io) {
-    disk_manager_->ReadPage(new_page_id, page->GetData());
+    // already on disk
+    disk_manager_->ReadPage(new_page_id, page->data_);
   } else {
-    page->ResetMemory();
+    // a brand new page
+    page->MarkPageDirty();
   }
   page->WUnlatch();
   return frame_id;
 }
 
 frame_id_t BufferPoolManagerInstance::ReplacerGetFrame(page_id_t *page_id) {
-  page_id_t old_page_id;
   page_id_t new_page_id;
 
   frame_id_t frame_id = INVALID_FRAME_ID;
   Page *page = nullptr;
+
+  /* Yet another page, this is to differentiate with the page got from lru. The variable is used when
+   * another thread has already initialized a victim for us. */
+  frame_id_t ya_frame_id = INVALID_FRAME_ID;
   bool already_exists = false;
+
+  std::stringstream ss;
+  ss << std::this_thread::get_id();
 
   for (;;) {
     if (!replacer_->Victim(&frame_id)) {
@@ -369,38 +433,59 @@ frame_id_t BufferPoolManagerInstance::ReplacerGetFrame(page_id_t *page_id) {
       return INVALID_FRAME_ID;
     }
 
-    new_page_id = *page_id;
+    page = pages_ + frame_id;
     bool is_dirty = false;
     bool needs_io = true;
+
     // got one victim
+    page->MetaLock();
+    is_dirty = page->is_dirty_;
+    page->pin_count_++;
+    page->MetaUnLock();
+
+    if (is_dirty) {
+      // need to flush it, TBD: might need try acquire page latch here!
+      InnerPageFlush(page);
+    }
+
+    new_page_id = *page_id;
     {
       std::unique_lock lock(table_mutex_);
+      already_exists = page_table_.count(new_page_id) != 0;
 
-      /* This depends on the logics of DeallocatePage(). If it can guarantee the atomicity, this can be moved
-       * up above, out of the scope of table lock. */
+      int old_pin_count;
+      page->MetaLock();
+      if (page->pin_count_ > 1 || page->is_dirty_) {
+        // someone may have just re-pinned or re-dirtied the frame before we get here, so give it up and retry
+        old_pin_count = page->pin_count_;
+        page->pin_count_--;
+        page->MetaUnLock();
+
+        if (old_pin_count == 1) {
+          replacer_->Unpin(frame_id);
+        }
+        continue;
+      }
+      // the page is guaranteed to be clean here
+      if (already_exists) {
+        // someone has already done the things we want, just unpin it and break out of the loop
+        page->pin_count_--;
+        page->MetaUnLock();
+        ya_frame_id = page_table_[new_page_id];
+        Page *ya_page = pages_ + ya_frame_id;
+        ya_page->MetaLock();
+        ya_page->pin_count_++;
+        ya_page->MetaUnLock();
+        break;
+      }
+
       if (new_page_id == INVALID_PAGE_ID) {
         new_page_id = AllocatePage();
         *page_id = new_page_id;
         needs_io = false;
       }
 
-      page = pages_ + frame_id;
-      page->MetaLock();
-      if (page->pin_count_ > 0) {
-        // someone may have just re-pinned the frame before we get here, so give it up and retry
-        page->MetaUnLock();
-        continue;
-      }
-
-      already_exists = page_table_.count(new_page_id) != 0;
-      if (already_exists) {
-        // someone has already done the things we want
-        page->MetaUnLock();
-        break;
-      }
-
-      old_page_id = page->page_id_;
-      is_dirty = page->is_dirty_;
+      page_id_t old_page_id = page->page_id_;
       ResetPageMeta(page, new_page_id);
       page->MetaUnLock();
 
@@ -412,14 +497,12 @@ frame_id_t BufferPoolManagerInstance::ReplacerGetFrame(page_id_t *page_id) {
       page_table_.emplace(new_page_id, frame_id);
     }
 
-    if (is_dirty) {
-      // need to flush it
-      disk_manager_->WritePage(old_page_id, page->data_);
-    }
+    page->ResetMemory();
     if (needs_io) {
-      disk_manager_->ReadPage(new_page_id, page->GetData());
+      disk_manager_->ReadPage(new_page_id, page->data_);
     } else {
-      page->ResetMemory();
+      // a brand new page
+      page->MarkPageDirty();
     }
     page->WUnlatch();
 
@@ -435,7 +518,9 @@ frame_id_t BufferPoolManagerInstance::ReplacerGetFrame(page_id_t *page_id) {
    * replacer controls all the potential victims.
    */
   replacer_->Unpin(frame_id);
-  return page_table_[new_page_id];
+  return ya_frame_id;
 }
 
 }  // namespace bustub
+
+// todo: test and debug delete, delete test: should be able to delete all the unpinned pages!!! test with random fetch!

@@ -16,6 +16,8 @@
 
 #include "buffer/lru_replacer.h"
 #include "common/logger.h"
+#include "common/rwlatch.h"
+#include "common/spinlock.h"
 #include "gtest/gtest.h"
 
 namespace bustub {
@@ -182,6 +184,27 @@ TEST(LRUReplacerTest, MultiThreadUnpinVictimTest) {
   th8.join();
 
   EXPECT_EQ(0, lru_replacer.Size());
+}
+
+TEST(MySpinLockTest, SampleTest) {
+  SpinLock spin_lock;
+  int counter = 0;
+  auto func = [&spin_lock, &counter]() {
+    for (int i = 0; i < 1000000; i++) {
+      spin_lock.Lock();
+      counter++;
+      spin_lock.Unlock();
+    }
+  };
+
+  std::thread th1(func);
+  std::thread th2(func);
+
+  th1.join();
+  th2.join();
+
+  LOG_INFO("The counter = %d", counter);
+  spin_lock.PrintStats();
 }
 
 }  // namespace bustub

@@ -70,10 +70,16 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   /**
    * Unpin the target page from the buffer pool.
    * @param page_id id of page to be unpinned
-   * @param is_dirty true if the page should be marked as dirty, false otherwise
+   * @param is_dirty true if the page should be marked as dirty, false otherwise.
+   *  Actually, we don't bother using this parameter, because it could be possible that
+   *  someone has flushed the page before it is marked dirty. Then we would have a wrong
+   *  hint bit. To solve this, we mark the page dirty under the protection of the page
+   *  latch. Every page access that intends to modify the page should remember to mark
+   *  the page dirty through this way.
+   *
    * @return false if the page pin count is <= 0 before this call, true otherwise
    */
-  bool UnpinPgImp(page_id_t page_id, bool is_dirty) override;
+  bool UnpinPgImp(page_id_t page_id, __attribute__((unused)) bool is_dirty) override;
 
   /**
    * Flushes the target page to disk.
@@ -122,9 +128,9 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    */
   void ValidatePageId(page_id_t page_id) const;
 
-  void ResetPage(Page *page, const page_id_t new_page_id);
-
   void ResetPageMeta(Page *page, const page_id_t new_page_id);
+
+  void InnerPageFlush(Page *page);
 
   frame_id_t FreeListGetFrame(page_id_t *page_id);
 

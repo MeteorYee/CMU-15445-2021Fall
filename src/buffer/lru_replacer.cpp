@@ -100,7 +100,7 @@ void LRUReplacer::Unpin(frame_id_t frame_id) {
   std::unique_lock lock(mutex_);
 
   if (lru_vec_[frame_id] != nullptr) {
-    LOG_DEBUG("Trying to unpin a frame (id = %d) multiple times, maybe dangerous in the upper level", frame_id);
+    LOG_DEBUG("Trying to unpin a frame (id = %d) multiple times", frame_id);
     return;
   }
   // insert into the list first
