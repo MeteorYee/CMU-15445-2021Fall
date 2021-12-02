@@ -53,12 +53,12 @@ class LRUReplacer : public Replacer {
    * The node inside the lru list
    */
   struct LRUNode {
-    LRUNode *prev;
-    LRUNode *next;
-    frame_id_t frame_id;
+    LRUNode *prev_;
+    LRUNode *next_;
+    frame_id_t frame_id_;
 
     LRUNode();
-    LRUNode(frame_id_t frm_id);
+    explicit LRUNode(frame_id_t frm_id);
   };
 
   /** the number of pages */

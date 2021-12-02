@@ -16,12 +16,12 @@
 
 #include "buffer/lru_replacer.h"
 #include "common/logger.h"
-#include "common/rwlatch.h"
 #include "common/spinlock.h"
 #include "gtest/gtest.h"
 
 namespace bustub {
 
+// NOLINTNEXTLINE
 TEST(LRUReplacerTest, OverflowTest) {
   LRUReplacer lru_replacer(2);
 

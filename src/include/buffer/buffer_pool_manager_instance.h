@@ -121,6 +121,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
     // This is a no-nop right now without a more complex data structure to track deallocated pages
   }
 
+ private:
   /**
    * Validate that the page_id being used is accessible to this BPI. This can be used in all of the functions to
    * validate input data and ensure that a parallel BPM is routing requests to the correct BPI
@@ -128,12 +129,39 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    */
   void ValidatePageId(page_id_t page_id) const;
 
-  void ResetPageMeta(Page *page, const page_id_t new_page_id);
+  /**
+   * @brief Reset the meta info of the page
+   *
+   * @param page the page to be reset
+   * @param new_page_id the new page id we want to use
+   */
+  void ResetPageMeta(Page *page, page_id_t new_page_id);
 
+  /**
+   * @brief The function wraps up the inner logic of a page flushing
+   *
+   * @param page the page to be flushed
+   */
   void InnerPageFlush(Page *page);
 
+  /**
+   * @brief Try to get a free frame from the free list.
+   *
+   * @param page_id A page_id pointer. If its content is INVALID_PAGE_ID, it means we want to create a new page
+   *                this time. If it's pointing to a valid pointer, then it means we want a free frame for a
+   *                existing page.
+   * @return frame_id_t the free frame
+   */
   frame_id_t FreeListGetFrame(page_id_t *page_id);
 
+  /**
+   * @brief Try to get a frame from the lru list.
+   *
+   * @param page_id A page_id pointer. If its content is INVALID_PAGE_ID, it means we want to create a new page
+   *                this time. If it's pointing to a valid pointer, then it means we want a free frame for a
+   *                existing page.
+   * @return frame_id_t the victim
+   */
   frame_id_t ReplacerGetFrame(page_id_t *page_id);
 
   /* Invalid frame id */

@@ -330,7 +330,7 @@ void BufferPoolManagerInstance::ValidatePageId(const page_id_t page_id) const {
   assert(page_id % num_instances_ == instance_index_);  // allocated pages mod back to this BPI
 }
 
-void BufferPoolManagerInstance::ResetPageMeta(Page *page, const page_id_t new_page_id) {
+void BufferPoolManagerInstance::ResetPageMeta(Page *page, page_id_t new_page_id) {
   page->page_id_ = new_page_id;
   page->is_dirty_ = false;
   // The page is just created or victimed, so we don't need to call replacer_.Pin() cuz it's
@@ -350,8 +350,6 @@ void BufferPoolManagerInstance::InnerPageFlush(Page *page) {
 
 frame_id_t BufferPoolManagerInstance::FreeListGetFrame(page_id_t *page_id) {
   frame_id_t frame_id;
-  std::stringstream ss;
-  ss << std::this_thread::get_id();
   {
     std::scoped_lock lock(latch_);
     if (free_list_.empty()) {
@@ -377,8 +375,6 @@ frame_id_t BufferPoolManagerInstance::FreeListGetFrame(page_id_t *page_id) {
 
       page->MetaLock();
       ResetPageMeta(page, new_page_id);
-      // LOG_INFO("buffer get from free list: thread: %s, page_id = %d, pin_count = %d, is_dirty = %d",
-      // ss.str().c_str(), new_page_id, page->pin_count_, page->is_dirty_);
       page->MetaUnLock();
 
       // N.B. we unlatch it after we release the table lock
@@ -423,9 +419,6 @@ frame_id_t BufferPoolManagerInstance::ReplacerGetFrame(page_id_t *page_id) {
    * another thread has already initialized a victim for us. */
   frame_id_t ya_frame_id = INVALID_FRAME_ID;
   bool already_exists = false;
-
-  std::stringstream ss;
-  ss << std::this_thread::get_id();
 
   for (;;) {
     if (!replacer_->Victim(&frame_id)) {
@@ -522,5 +515,3 @@ frame_id_t BufferPoolManagerInstance::ReplacerGetFrame(page_id_t *page_id) {
 }
 
 }  // namespace bustub
-
-// todo: test and debug delete, delete test: should be able to delete all the unpinned pages!!! test with random fetch!
