@@ -1,8 +1,13 @@
+**WARNING: IF YOU ARE A STUDENT IN THE CLASS, DO NOT DIRECTLY FORK THIS REPO. DO NOT PUSH PROJECT SOLUTIONS PUBLICLY. THIS IS AN ACADEMIC INTEGRITY VIOLATION AND CAN LEAD TO GETTING YOUR DEGREE REVOKED, EVEN AFTER YOU GRADUATE.**
+
 ## Project 0
-need line coverage report? and some descriptions...
+TODO: line coverage report
 
 ## Project 1
-`page.h` revised: page header lock added
+### Test Coverage
+![](https://github.com/MeteorYee/still-working/blob/dev/master/images/project1_test_coverage.png)
+
+As the image shows above, the test cases achieve nearly 100% line coverage for the project. There is only one line not covered which might be tested in the future when I come up with a tricky test case against it.
 
 ### Test Coverage Calculation
 ```
@@ -10,10 +15,8 @@ cd <PROJECT_DIR>/build/src/CMakeFiles/bustub_shared.dir/buffer
 
 # lru_replacer.cpp
 gcov lru_replacer.gcno
-
 # buffer_pool_manager_instance.cpp
 gcov buffer_pool_manager_instance.gcno
-
 # parallel_buffer_pool_manager.cpp
 gcov parallel_buffer_pool_manager.gcno
 
