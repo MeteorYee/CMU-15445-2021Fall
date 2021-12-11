@@ -24,6 +24,18 @@ lcov --capture --directory . --output-file project1_test.info
 genhtml project1_test.info --output-directory project1_test.dir
 ```
 
+# Project 2
+### Test Coverage Calculation
+```
+cd <PROJECT_DIR>/build/src/CMakeFiles/bustub_shared.dir/storage/page
+# hash_table_directory_page.cpp
+gcov hash_table_directory_page.gcno
+# hash_table_bucket_page.cpp
+gcov hash_table_bucket_page.gcno
+
+lcov --capture --directory . --output-file hash_page_test.info
+genhtml hash_page_test.info --output-directory hash_page_test.dir
+
 ## Test Coverage Settings
 ```
 # add the two lines below into the cmake file
