@@ -510,6 +510,11 @@ TEST_F(BufferPoolManagerInstanceTest, DeletePageBasicFunctionTest) {
   }
 }
 
+/**
+ * Ideally, when we delete a page, it means we won't access it anymore, unless the page id is reused
+ * by AllocatePage() and then can we fetch it. Here we flush all of the page and then delete and fetch
+ * them randomly to pretend the page is reused.
+ */
 TEST_F(BufferPoolManagerInstanceTest, MultiThreadDeleteWithFetchPageTest) {
   Initialize("multithread_test.db", 1024, 4);
   const size_t page_count_each = buffer_pool_size_;
@@ -520,6 +525,7 @@ TEST_F(BufferPoolManagerInstanceTest, MultiThreadDeleteWithFetchPageTest) {
   }
 
   MultiThreadNewPage(page_count_each, expected_set);
+  bpm_->FlushAllPages();
   MultiThreadDeleteWithFetchPageRandom();
 }
 
@@ -535,8 +541,6 @@ TEST_F(BufferPoolManagerInstanceTest, MultiThreadDeleteAllPagesTest) {
   MultiThreadNewPage(page_count_each, expected_set);
   MultiThreadFetchPageRandom(page_count_each, false, true);
   MultiThreadDeleteAllPages();
-  // another fetching run will still work smoothly
-  MultiThreadFetchPageRandom(buffer_pool_size_, false, true);
 }
 
 }  // namespace bustub

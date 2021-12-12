@@ -186,6 +186,7 @@ TEST(LRUReplacerTest, MultiThreadUnpinVictimTest) {
   EXPECT_EQ(0, lru_replacer.Size());
 }
 
+#ifdef SPIN_LOCK_DEBUG
 TEST(MySpinLockTest, SampleTest) {
   SpinLock spin_lock;
   int counter = 0;
@@ -205,6 +206,8 @@ TEST(MySpinLockTest, SampleTest) {
 
   LOG_INFO("The counter = %d", counter);
   spin_lock.PrintStats();
+  EXPECT_EQ(2000000, counter);
 }
+#endif
 
 }  // namespace bustub

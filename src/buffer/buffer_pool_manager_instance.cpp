@@ -217,7 +217,6 @@ bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
 
   frame_id_t frame_id = INVALID_FRAME_ID;
   Page *page = nullptr;
-  bool is_dirty = false;
 
   {
     std::shared_lock lock(table_mutex_);
@@ -236,7 +235,6 @@ bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
       return false;
     }
     page->pin_count_++;
-    is_dirty = page->is_dirty_;
     page->MetaUnLock();
   }
 
@@ -244,9 +242,6 @@ bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
    * play it safe. The pin count is guaranteed to be zero when it reads the frame in the
    * page table. */
   replacer_->Pin(frame_id);
-  if (is_dirty) {
-    InnerPageFlush(page);
-  }
 
   {
     std::unique_lock lock(table_mutex_);
@@ -254,7 +249,7 @@ bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
 
     page->MetaLock();
     if (page->pin_count_ > 1) {
-      // someone might have re-pinned it before we get here
+      // someone has re-pinned the page before we get here
       page->MetaUnLock();
       return false;
     }
@@ -269,14 +264,9 @@ bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
     page_table_.erase(page_id);
     DeallocatePage(page_id);
   }
-
-  /* N.B. we have already deleted it, no one will compete with the latch here actually. We still
-   * acquire it just to make sure this reset happen before any following readers/writers. If it's
-   * for the sake of performance, we can even leave out the step here because the page will be
-   * reset once again when it was retrieved from the free list. */
-  page->WLatch();
-  page->ResetMemory();
-  page->WUnlatch();
+  /* N.B. For the sake of performance, we can even leave out the page resetting here because the page will be
+   * reset when it was retrieved from the free list. On top of that, we don't need to flush the page even if
+   * it's dirty, because we are deleting it. */
 
   // return it back to the free list
   {
