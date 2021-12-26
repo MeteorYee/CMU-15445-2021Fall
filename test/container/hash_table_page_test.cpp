@@ -126,48 +126,61 @@ TEST(HashTablePageTest, BucketPageSampleTest) {
   auto bucket_page = reinterpret_cast<HashTableBucketPage<int, int, IntComparator> *>(
       bpm->NewPage(&bucket_page_id, nullptr)->GetData());
 
+  // based on the size of HashTableBucketPage<int, int, IntComparator>
+  const unsigned max_elements = 496;
+  EXPECT_TRUE(bucket_page->IsEmpty());
   // insert a few (key, value) pairs
-  for (unsigned i = 0; i < 10; i++) {
+  for (unsigned i = 0; i < max_elements; i++) {
+    EXPECT_FALSE(bucket_page->IsFull());
+    EXPECT_EQ(i, bucket_page->NumReadable());
     assert(bucket_page->Insert(i, i, IntComparator()));
+    EXPECT_FALSE(bucket_page->IsEmpty());
+    EXPECT_EQ(i + 1, bucket_page->NumReadable());
   }
 
   // check for the inserted pairs
-  for (unsigned i = 0; i < 10; i++) {
+  for (unsigned i = 0; i < max_elements; i++) {
     EXPECT_EQ(i, bucket_page->KeyAt(i));
     EXPECT_EQ(i, bucket_page->ValueAt(i));
   }
-  EXPECT_FALSE(bucket_page->IsFull());
-  EXPECT_FALSE(bucket_page->IsEmpty());
-  EXPECT_EQ(10, bucket_page->NumReadable());
+  EXPECT_TRUE(bucket_page->IsFull());
+  EXPECT_EQ(max_elements, bucket_page->NumReadable());
 
   // remove a few pairs
-  for (unsigned i = 0; i < 10; i++) {
+  for (unsigned i = 0; i < max_elements; i++) {
     if (i % 2 == 1) {
       assert(bucket_page->Remove(i, i, IntComparator()));
     }
   }
+  EXPECT_FALSE(bucket_page->IsFull());
 
   // check for the flags
-  for (unsigned i = 0; i < 15; i++) {
-    if (i < 10) {
-      EXPECT_TRUE(bucket_page->IsOccupied(i));
-      if (i % 2 == 1) {
-        EXPECT_FALSE(bucket_page->IsReadable(i));
-      } else {
-        EXPECT_TRUE(bucket_page->IsReadable(i));
-      }
-    } else {
-      EXPECT_FALSE(bucket_page->IsOccupied(i));
-    }
-  }
-  EXPECT_EQ(5, bucket_page->NumReadable());
-
-  // try to remove the already-removed pairs
-  for (unsigned i = 0; i < 10; i++) {
+  unsigned removed = 0;
+  for (unsigned i = 0; i < max_elements; i++) {
+    EXPECT_TRUE(bucket_page->IsOccupied(i));
     if (i % 2 == 1) {
-      assert(!bucket_page->Remove(i, i, IntComparator()));
+      EXPECT_FALSE(bucket_page->IsReadable(i));
+      removed++;
+    } else {
+      EXPECT_TRUE(bucket_page->IsReadable(i));
     }
   }
+  EXPECT_EQ(max_elements - removed, bucket_page->NumReadable());
+
+  // try to remove the already-removed pairs, they should fail
+  for (unsigned i = 0; i < max_elements; i++) {
+    if (i % 2 == 1) {
+      EXPECT_FALSE(bucket_page->Remove(i, i, IntComparator()));
+    }
+  }
+
+  // remove all the left pairs
+  for (unsigned i = 0; i < max_elements; i++) {
+    if (i % 2 == 0) {
+      EXPECT_TRUE(bucket_page->Remove(i, i, IntComparator()));
+    }
+  }
+  EXPECT_TRUE(bucket_page->IsEmpty());
 
   // unpin the directory page now that we are done
   bpm->UnpinPage(bucket_page_id, true, nullptr);

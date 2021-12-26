@@ -86,6 +86,11 @@ class HashTableBucketPage {
   void RemoveAt(uint32_t bucket_idx);
 
   /**
+   * Insert the KV pair at bucket_idx, based on the assumption that the position is empty.
+   */
+  void InsertAt(uint32_t bucket_idx, KeyType key, ValueType value, KeyComparator cmp);
+
+  /**
    * Returns whether or not an index is occupied (key/value pair or tombstone)
    *
    * @param bucket_idx index to look at

@@ -19,24 +19,55 @@
 
 namespace bustub {
 
+template <typename Type>
+static uint32_t GetHammingWeight(Type value) {
+  Type num = value;
+  static Type zero = static_cast<Type>(0);
+  static Type one = static_cast<Type>(1);
+  assert(num >= zero);
+
+  // Brian Kernighan’s Algorithm
+  uint32_t hamming_weight = 0;
+  while (num > zero) {
+    num &= (num - one);
+    hamming_weight++;
+  }
+  return hamming_weight;
+}
+
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::GetValue(KeyType key, KeyComparator cmp, std::vector<ValueType> *result) {
-  return false;
+  for (uint32_t idx = 0; idx < BUCKET_ARRAY_SIZE; idx++) {
+    if (!IsOccupied(idx) || !IsReadable(idx)) {
+      continue;
+    }
+    if (cmp(key, KeyAt(idx)) == 0) {
+      result->push_back(ValueAt(idx));
+    }
+  }
+  return !result->empty();
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator cmp) {
   for (uint32_t idx = 0; idx < BUCKET_ARRAY_SIZE; idx++) {
-    if (IsOccupied(idx)) {
-      if (cmp(key, KeyAt(idx)) == 0 && value == ValueAt(idx)) {
-        return false;
-      }
-      continue;
+    if (!IsOccupied(idx)) {
+      SetOccupied(idx);
+      SetReadable(idx);
+      array_[idx] = std::make_pair(key, value);
+      return true;
     }
-    SetOccupied(idx);
-    SetReadable(idx);
-    array_[idx] = std::make_pair(key, value);
-    return true;
+    // must be occupied, but could be a tombstone
+    if (!IsReadable(idx)) {
+      // we just reuse the tombstone
+      SetReadable(idx);
+      array_[idx] = std::make_pair(key, value);
+      return true;
+    }
+    if (cmp(key, KeyAt(idx)) == 0 && value == ValueAt(idx)) {
+      // duplicate!
+      return false;
+    }
   }
   return false;
 }
@@ -77,6 +108,15 @@ void HASH_TABLE_BUCKET_TYPE::RemoveAt(uint32_t bucket_idx) {
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
+void HASH_TABLE_BUCKET_TYPE::InsertAt(uint32_t bucket_idx, KeyType key, ValueType value, KeyComparator cmp) {
+  assert(!IsOccupied(bucket_idx));
+  assert(!IsReadable(bucket_idx));
+  SetOccupied(bucket_idx);
+  SetReadable(bucket_idx);
+  array_[bucket_idx] = std::make_pair(key, value);
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsOccupied(uint32_t bucket_idx) const {
   assert(bucket_idx < BUCKET_ARRAY_SIZE);
   int shift_length = 7 - (bucket_idx % 8);
@@ -110,8 +150,32 @@ void HASH_TABLE_BUCKET_TYPE::SetReadable(uint32_t bucket_idx) {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsFull() {
-  for (uint32_t idx = 0; idx < BUCKET_ARRAY_SIZE; idx++) {
-    if (!IsOccupied(idx)) {
+  int tail_bits = BUCKET_ARRAY_SIZE % 8;
+  char tail_byte = 0xff;
+  if (tail_bits > 0) {
+    int shift = 8 - tail_bits;
+    tail_byte = (tail_byte >> shift) << shift;
+  }
+  // check the last byte first
+  uint32_t length = (BUCKET_ARRAY_SIZE - 1) / 8 + 1;
+  if ((readable_[length - 1] ^ tail_byte) != 0) {
+    return false;
+  }
+  // check the trailing bytes except the last one, because they are not enough
+  // to construct a 64-bit word
+  char check_byte = 0xff;
+  (void)GetHammingWeight<unsigned char>(check_byte);
+  uint32_t limit = ((length - 1) >> 3) << 3;
+  for (uint32_t i = limit; i < length - 1; i++) {
+    if ((readable_[i] ^ check_byte) != 0) {
+      return false;
+    }
+  }
+  // finally check the array with a 64-bit stride
+  uint64_t check_word = 0xffffffffffffffff;
+  uint64_t *word_ptr = reinterpret_cast<uint64_t *>(readable_);
+  for (uint32_t i = 0; i < limit; i += 8, word_ptr++) {
+    if ((*word_ptr ^ check_word) != 0) {
       return false;
     }
   }
@@ -121,18 +185,40 @@ bool HASH_TABLE_BUCKET_TYPE::IsFull() {
 template <typename KeyType, typename ValueType, typename KeyComparator>
 uint32_t HASH_TABLE_BUCKET_TYPE::NumReadable() {
   uint32_t count = 0;
-  for (uint32_t idx = 0; idx < BUCKET_ARRAY_SIZE; idx++) {
-    if (IsReadable(idx)) {
-      count++;
-    }
+  // for readable check, we don't need to handle the tail byte specifically as well
+  // check the trailing bytes, because they are not enough to construct a 64-bit word
+  uint32_t length = (BUCKET_ARRAY_SIZE - 1) / 8 + 1;
+  uint32_t limit = ((length - 1) >> 3) << 3;
+  for (uint32_t i = limit; i < length; i++) {
+    // notice the unsigned cast here, otherwise there will be undefined behaviors
+    count += GetHammingWeight<unsigned char>(readable_[i]);
+  }
+  // finally check the array with a stride of 64-bit length
+  uint64_t *word_ptr = reinterpret_cast<uint64_t *>(readable_);
+  for (uint32_t i = 0; i < limit; i += 8, word_ptr++) {
+    count += GetHammingWeight<uint64_t>(*word_ptr);
   }
   return count;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsEmpty() {
-  for (uint32_t idx = 0; idx < BUCKET_ARRAY_SIZE; idx++) {
-    if (IsOccupied(idx)) {
+  // for empty check, we don't need to handle the last byte specifically, cuz the
+  // redundant bits are guaranteed to be zeros
+  // check the trailing bytes, because they are not enough to construct a 64-bit word
+  uint32_t length = (BUCKET_ARRAY_SIZE - 1) / 8 + 1;
+  char check_byte = 0x00;
+  uint32_t limit = ((length - 1) >> 3) << 3;
+  for (uint32_t i = limit; i < length; i++) {
+    if ((readable_[i] | check_byte) != 0) {
+      return false;
+    }
+  }
+  // finally check the array with a stride of 64-bit length
+  uint64_t check_word = 0x00;
+  uint64_t *word_ptr = reinterpret_cast<uint64_t *>(readable_);
+  for (uint32_t i = 0; i < limit; i += 8, word_ptr++) {
+    if ((*word_ptr | check_word) != 0) {
       return false;
     }
   }
