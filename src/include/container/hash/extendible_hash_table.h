@@ -119,14 +119,26 @@ class ExtendibleHashTable {
    * @param dir_page a pointer to the hash table's directory page
    * @return the bucket page_id corresponding to the input key
    */
-  inline uint32_t KeyToPageId(KeyType key, HashTableDirectoryPage *dir_page);
+  inline page_id_t KeyToPageId(KeyType key, HashTableDirectoryPage *dir_page);
+
+  /**
+   * @brief Get the bucket page_id. CAVEAT: should be protected by table_latch_
+   *
+   * @param key the key for lookup
+   * @return the bucket page_id corresponding to the input key
+   */
+  page_id_t GetBucketPageIdByKey(KeyType key);
+
+  Page *AcquireDirPage(bool is_write_latch);
+
+  Page *AcquireBucketPage(page_id_t bucket_page_id, bool is_write_latch);
 
   /**
    * Fetches the directory page from the buffer pool manager.
    *
    * @return a pointer to the directory page
    */
-  HashTableDirectoryPage *FetchDirectoryPage();
+  Page *FetchDirectoryPage();
 
   /**
    * Fetches the a bucket page from the buffer pool manager using the bucket's page_id.
@@ -134,7 +146,45 @@ class ExtendibleHashTable {
    * @param bucket_page_id the page_id to fetch
    * @return a pointer to a bucket page
    */
-  HASH_TABLE_BUCKET_TYPE *FetchBucketPage(page_id_t bucket_page_id);
+  Page *FetchBucketPage(page_id_t bucket_page_id);
+
+  /**
+   * Create a new page. (could be a dir page or a bucket page)
+   *
+   * @param[out] page_id the newly created page id
+   * @return the pointer to the page
+   */
+  Page *NewPageHelper(page_id_t *page_id);
+
+  /**
+   * Fetch the page specified by the page_id. (could be a dir page or a bucket page)
+   *
+   * @param page_id the page id of the page to be fetched
+   * @return the pointer to the page
+   */
+  Page *FetchPageHelper(page_id_t page_id);
+
+  /**
+   * Traverse all the key-value pairs in a full bucket and split the bucket using the high_bit. For
+   * those whose high_bit is one are put in to the split bucket.
+   *
+   * @param bucket_page the bucket to be split
+   * @param split_bucket_page the split image
+   * @param high_bit
+   * @return the number of key-value pairs that are put into the split image
+   */
+  uint32_t BucketSplit(HASH_TABLE_BUCKET_TYPE *bucket_page, HASH_TABLE_BUCKET_TYPE *split_bucket_page,
+                       uint32_t high_bit);
+
+  /**
+   * Mark the page dirty according to the is_dirty flag. Unlatch the page. Unpin the page.
+   *
+   * @param page the page pointer
+   * @param page_id the page id
+   * @param is_dirty true if the page content has been modified, false otherwise
+   * @param is_write_latch true if the latch to be released is in write mode, false if it's read mode
+   */
+  void ReleasePage(Page *page, page_id_t page_id, bool is_dirty, bool is_write_latch);
 
   /**
    * Performs insertion with an optional bucket splitting.
@@ -160,6 +210,8 @@ class ExtendibleHashTable {
    * @param value the value that was removed
    */
   void Merge(Transaction *transaction, const KeyType &key, const ValueType &value);
+
+  static constexpr int TEM_MILLIS{10};
 
   // member variables
   page_id_t directory_page_id_;
