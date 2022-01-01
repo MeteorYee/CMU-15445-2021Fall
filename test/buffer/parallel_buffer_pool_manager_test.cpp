@@ -266,6 +266,7 @@ TEST_F(ParallelBufferPoolManagerTest, SampleTest) {
   auto page4 = bpm_->FetchPage(4);
   snprintf(page4->GetData(), PAGE_SIZE, "World");
   EXPECT_EQ(0, strcmp(page4->GetData(), "World"));
+  page4->MarkPageDirty();
   bpm_->UnpinPage(4, true);
 
   // Scenario: After unpinning pages {0, 1, 2, 3, 4} and pinning pages {0, 1, 2, 3},
@@ -278,16 +279,16 @@ TEST_F(ParallelBufferPoolManagerTest, SampleTest) {
     EXPECT_NE(nullptr, bpm_->FetchPage(i));
   }
 
+  // Scenario: If we make a new page, page 4 should be flushed to the disk
+  EXPECT_NE(nullptr, bpm_->NewPage(&page_id_temp));
+  EXPECT_EQ(true, bpm_->UnpinPage(page_id_temp, true));
+
   // Scenario: We should be able to fetch the data we wrote a while ago.
-  ASSERT_TRUE(bpm_->DeletePage(4));  // we can delete it first
   page4 = bpm_->FetchPage(4);
   EXPECT_EQ(0, strcmp(page4->GetData(), "World"));
-
-  // Scenario: If we unpin page 4 and then make a new page, all the buffer pages should
-  // now be pinned. Fetching page 4 should fail.
   EXPECT_EQ(true, bpm_->UnpinPage(4, true));
-  EXPECT_NE(nullptr, bpm_->NewPage(&page_id_temp));
-  EXPECT_EQ(nullptr, bpm_->FetchPage(4));
+
+  ASSERT_TRUE(bpm_->DeletePage(4));
 }
 
 TEST_F(ParallelBufferPoolManagerTest, MultiThreadFlushAllTest) {

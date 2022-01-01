@@ -71,7 +71,6 @@ Page *ParallelBufferPoolManager::NewPgImp(page_id_t *page_id) {
   while (!std::atomic_compare_exchange_weak_explicit(&start_index_, &expected_start_index,
                                                      (expected_start_index + 1) % num_instances_,
                                                      std::memory_order_relaxed, std::memory_order_relaxed)) {
-    expected_start_index = start_index_.load(std::memory_order_relaxed);
   }
   Page *page = nullptr;
   for (uint32_t i = 0; i < num_instances_; i++) {
