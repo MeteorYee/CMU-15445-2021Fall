@@ -109,7 +109,6 @@ void HASH_TABLE_BUCKET_TYPE::RemoveAt(uint32_t bucket_idx) {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void HASH_TABLE_BUCKET_TYPE::InsertAt(uint32_t bucket_idx, KeyType key, ValueType value, KeyComparator cmp) {
-  assert(!IsOccupied(bucket_idx));
   assert(!IsReadable(bucket_idx));
   SetOccupied(bucket_idx);
   SetReadable(bucket_idx);
@@ -164,7 +163,6 @@ bool HASH_TABLE_BUCKET_TYPE::IsFull() {
   // check the trailing bytes except the last one, because they are not enough
   // to construct a 64-bit word
   char check_byte = 0xff;
-  (void)GetHammingWeight<unsigned char>(check_byte);
   uint32_t limit = ((length - 1) >> 3) << 3;
   for (uint32_t i = limit; i < length - 1; i++) {
     if ((readable_[i] ^ check_byte) != 0) {
@@ -249,6 +247,7 @@ void HASH_TABLE_BUCKET_TYPE::PrintBucket() {
 
 // DO NOT REMOVE ANYTHING BELOW THIS LINE
 template class HashTableBucketPage<int, int, IntComparator>;
+template class HashTableBucketPage<int64_t, int64_t, Int64Comparator>;
 
 template class HashTableBucketPage<GenericKey<4>, RID, GenericComparator<4>>;
 template class HashTableBucketPage<GenericKey<8>, RID, GenericComparator<8>>;

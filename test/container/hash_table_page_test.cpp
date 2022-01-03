@@ -49,6 +49,7 @@ TEST(HashTablePageTest, DirectoryPageSampleTest) {
     directory_page->SetBucketPageId(i, i);
     directory_page->SetLocalDepth(i, 3);
     EXPECT_EQ(3, directory_page->GetLocalDepth(i));
+    EXPECT_EQ(0x08, directory_page->GetLocalHighBit(i));
   }
   EXPECT_FALSE(directory_page->CanShrink());
   // verify it
@@ -106,6 +107,9 @@ TEST(HashTablePageTest, DirectoryPageSampleTest2) {
   // decrease the global depth and test it
   directory_page->DecrGlobalDepth();
   EXPECT_EQ(1, directory_page->GetGlobalDepth());
+  EXPECT_EQ(2, directory_page->Size());
+  // verify it
+  directory_page->VerifyIntegrity();
 
   // unpin the directory page now that we are done
   bpm->UnpinPage(directory_page_id, true, nullptr);
@@ -123,17 +127,17 @@ TEST(HashTablePageTest, BucketPageSampleTest) {
   // get a bucket page from the BufferPoolManager
   page_id_t bucket_page_id = INVALID_PAGE_ID;
 
-  auto bucket_page = reinterpret_cast<HashTableBucketPage<int, int, IntComparator> *>(
+  auto bucket_page = reinterpret_cast<HashTableBucketPage<int64_t, int64_t, Int64Comparator> *>(
       bpm->NewPage(&bucket_page_id, nullptr)->GetData());
 
-  // based on the size of HashTableBucketPage<int, int, IntComparator>
-  const unsigned max_elements = 496;
+  // based on the size of HashTableBucketPage<int64_t, int64_t, Int64Comparator>
+  const unsigned max_elements = 252;
   EXPECT_TRUE(bucket_page->IsEmpty());
-  // insert a few (key, value) pairs
+  // insert a few(key, value) pairs
   for (unsigned i = 0; i < max_elements; i++) {
     EXPECT_FALSE(bucket_page->IsFull());
     EXPECT_EQ(i, bucket_page->NumReadable());
-    assert(bucket_page->Insert(i, i, IntComparator()));
+    EXPECT_TRUE(bucket_page->Insert(i, i, Int64Comparator()));
     EXPECT_FALSE(bucket_page->IsEmpty());
     EXPECT_EQ(i + 1, bucket_page->NumReadable());
   }
@@ -144,15 +148,21 @@ TEST(HashTablePageTest, BucketPageSampleTest) {
     EXPECT_EQ(i, bucket_page->ValueAt(i));
   }
   EXPECT_TRUE(bucket_page->IsFull());
+  // any other new insertions are not allowed
+  EXPECT_FALSE(bucket_page->Insert(-1, -1, Int64Comparator()));
   EXPECT_EQ(max_elements, bucket_page->NumReadable());
 
   // remove a few pairs
   for (unsigned i = 0; i < max_elements; i++) {
     if (i % 2 == 1) {
-      assert(bucket_page->Remove(i, i, IntComparator()));
+      EXPECT_TRUE(bucket_page->Remove(i, i, Int64Comparator()));
+      // another insertion should succeed
+      EXPECT_TRUE(bucket_page->Insert(i, i, Int64Comparator()));
+      // remove it again
+      EXPECT_TRUE(bucket_page->Remove(i, i, Int64Comparator()));
+      EXPECT_FALSE(bucket_page->IsFull());
     }
   }
-  EXPECT_FALSE(bucket_page->IsFull());
 
   // check for the flags
   unsigned removed = 0;
@@ -170,14 +180,18 @@ TEST(HashTablePageTest, BucketPageSampleTest) {
   // try to remove the already-removed pairs, they should fail
   for (unsigned i = 0; i < max_elements; i++) {
     if (i % 2 == 1) {
-      EXPECT_FALSE(bucket_page->Remove(i, i, IntComparator()));
+      EXPECT_FALSE(bucket_page->Remove(i, i, Int64Comparator()));
+      // use InsertAt, should succeed
+      bucket_page->InsertAt(i, i, i, Int64Comparator());
+      // remove it again, should succeed
+      EXPECT_TRUE(bucket_page->Remove(i, i, Int64Comparator()));
     }
   }
 
   // remove all the left pairs
   for (unsigned i = 0; i < max_elements; i++) {
     if (i % 2 == 0) {
-      EXPECT_TRUE(bucket_page->Remove(i, i, IntComparator()));
+      EXPECT_TRUE(bucket_page->Remove(i, i, Int64Comparator()));
     }
   }
   EXPECT_TRUE(bucket_page->IsEmpty());

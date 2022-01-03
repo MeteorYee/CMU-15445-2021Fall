@@ -84,6 +84,12 @@ class ExtendibleHashTable {
    */
   void VerifyIntegrity();
 
+  /**
+   * Helper function to verify the integrity of the extendible hash table's directory. On top of that,
+   * the function prints the pages info as well.
+   */
+  void VerifyIntegrityAndPrint();
+
  private:
   /**
    * Hash - simple helper to downcast MurmurHash's 64-bit hash to 32-bit
@@ -93,6 +99,15 @@ class ExtendibleHashTable {
    * @return the downcasted 32-bit hash
    */
   inline uint32_t Hash(KeyType key);
+
+  /**
+   * Convert a key to its corresponding bucket index based on the high bit.
+   *
+   * @param high_bit (0x01 << bucket.local_depth)
+   * @param key the key used to calculate the bucket index
+   * @return the bucket index
+   */
+  inline uint32_t KeyToBucketIndexByHighBit(uint32_t high_bit, KeyType key);
 
   /**
    * KeyToDirectoryIndex - maps a key to a directory index
@@ -122,15 +137,21 @@ class ExtendibleHashTable {
   inline page_id_t KeyToPageId(KeyType key, HashTableDirectoryPage *dir_page);
 
   /**
-   * @brief Get the bucket page_id. CAVEAT: should be protected by table_latch_
+   * Get the directory page and acquire the latch according to the is_write_latch flag.
    *
-   * @param key the key for lookup
-   * @return the bucket page_id corresponding to the input key
+   * @param is_write_latch true if it's acquiring write latch, false read latch
+   * @return the page pointer
    */
-  page_id_t GetBucketPageIdByKey(KeyType key);
-
   Page *AcquireDirPage(bool is_write_latch);
 
+  /**
+   * Get the bucket page based on the given page id and acquire the latch according to
+   * the is_write_latch flag.
+   *
+   * @param bucket_page_id the bucket page id
+   * @param is_write_latch true if it's acquiring write latch, false read latch
+   * @return the page pointer
+   */
   Page *AcquireBucketPage(page_id_t bucket_page_id, bool is_write_latch);
 
   /**
@@ -171,10 +192,11 @@ class ExtendibleHashTable {
    * @param bucket_page the bucket to be split
    * @param split_bucket_page the split image
    * @param high_bit
+   * @param split_image_idx the bucket index of the split image
    * @return the number of key-value pairs that are put into the split image
    */
   uint32_t BucketSplit(HASH_TABLE_BUCKET_TYPE *bucket_page, HASH_TABLE_BUCKET_TYPE *split_bucket_page,
-                       uint32_t high_bit);
+                       uint32_t high_bit, uint32_t split_image_idx);
 
   /**
    * Mark the page dirty according to the is_dirty flag. Unlatch the page. Unpin the page.

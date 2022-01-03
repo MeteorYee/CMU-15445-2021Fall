@@ -14,6 +14,7 @@
 #include <iostream>
 #include <string>
 #include <thread>  // NOLINT
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -33,7 +34,7 @@ HASH_TABLE_TYPE::ExtendibleHashTable(const std::string &name, BufferPoolManager 
   Page *dir_page_raw = NewPageHelper(&directory_page_id_);
   page_id_t bucket_page_id = INVALID_PAGE_ID;
   (void)NewPageHelper(&bucket_page_id);
-  buffer_pool_manager_->UnpinPage(bucket_page_id, true);
+  assert(buffer_pool_manager_->UnpinPage(bucket_page_id, true));
 
   dir_page_raw->WLatch();
   auto dir_page = reinterpret_cast<HashTableDirectoryPage *>(dir_page_raw->GetData());
@@ -55,8 +56,13 @@ HASH_TABLE_TYPE::ExtendibleHashTable(const std::string &name, BufferPoolManager 
  * @return the downcasted 32-bit hash
  */
 template <typename KeyType, typename ValueType, typename KeyComparator>
-uint32_t HASH_TABLE_TYPE::Hash(KeyType key) {
+inline uint32_t HASH_TABLE_TYPE::Hash(KeyType key) {
   return static_cast<uint32_t>(hash_fn_.GetHash(key));
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+inline uint32_t HASH_TABLE_TYPE::KeyToBucketIndexByHighBit(uint32_t high_bit, KeyType key) {
+  return (Hash(key) & ((high_bit << 1) - 1));
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -67,16 +73,6 @@ inline uint32_t HASH_TABLE_TYPE::KeyToDirectoryIndex(KeyType key, HashTableDirec
 template <typename KeyType, typename ValueType, typename KeyComparator>
 inline page_id_t HASH_TABLE_TYPE::KeyToPageId(KeyType key, HashTableDirectoryPage *dir_page) {
   return dir_page->GetBucketPageId(KeyToDirectoryIndex(key, dir_page));
-}
-
-template <typename KeyType, typename ValueType, typename KeyComparator>
-page_id_t HASH_TABLE_TYPE::GetBucketPageIdByKey(KeyType key) {  // TODO: do not release the latch
-  page_id_t bucket_page_id = INVALID_PAGE_ID;
-  Page *dir_page_raw = FetchDirectoryPage();
-  dir_page_raw->RLatch();
-  bucket_page_id = KeyToPageId(key, reinterpret_cast<HashTableDirectoryPage *>(dir_page_raw->GetData()));
-  ReleasePage(dir_page_raw, directory_page_id_, false, false);
-  return bucket_page_id;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -122,14 +118,15 @@ Page *HASH_TABLE_TYPE::FetchPageHelper(page_id_t page_id) {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 uint32_t HASH_TABLE_TYPE::BucketSplit(HASH_TABLE_BUCKET_TYPE *bucket_page, HASH_TABLE_BUCKET_TYPE *split_bucket_page,
-                                      uint32_t high_bit) {
+                                      uint32_t high_bit, uint32_t split_image_idx) {
   uint32_t split_idx = 0;
   for (uint32_t idx = 0; idx < BUCKET_ARRAY_SIZE; idx++) {
-    if ((Hash(bucket_page->KeyAt(idx)) & high_bit) == 0) {
+    KeyType key = bucket_page->KeyAt(idx);
+    if (KeyToBucketIndexByHighBit(high_bit, key) != split_image_idx) {
       continue;
     }
     bucket_page->RemoveAt(idx);
-    split_bucket_page->InsertAt(split_idx, bucket_page->KeyAt(idx), bucket_page->ValueAt(idx), comparator_);
+    split_bucket_page->InsertAt(split_idx, key, bucket_page->ValueAt(idx), comparator_);
     split_idx++;
   }
   return split_idx;
@@ -160,6 +157,7 @@ Page *HASH_TABLE_TYPE::AcquireBucketPage(page_id_t bucket_page_id, bool is_write
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void HASH_TABLE_TYPE::ReleasePage(Page *page, page_id_t page_id, bool is_dirty, bool is_write_latch) {
   if (is_dirty) {
+    assert(is_write_latch);
     page->MarkPageDirty();
   }
   if (is_write_latch) {
@@ -167,7 +165,7 @@ void HASH_TABLE_TYPE::ReleasePage(Page *page, page_id_t page_id, bool is_dirty, 
   } else {
     page->RUnlatch();
   }
-  buffer_pool_manager_->UnpinPage(page_id, is_dirty);
+  assert(buffer_pool_manager_->UnpinPage(page_id, is_dirty));
 }
 
 /*****************************************************************************
@@ -255,25 +253,25 @@ bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
     Page *split_bucket_page_raw = NewPageHelper(&split_bucket_page_id);
     // step 3
     uint32_t high_bit = dir_page->GetLocalHighBit(bucket_idx);
+    uint32_t split_image_idx = bucket_idx ^ high_bit;
     dir_page->IncrLocalDepth(bucket_idx);
-    dir_page->IncrLocalDepth((bucket_idx | high_bit));
+    dir_page->IncrLocalDepth(split_image_idx);
     // step 4
-    dir_page->SetBucketPageId((bucket_idx | high_bit), split_bucket_page_id);
+    dir_page->SetBucketPageId(split_image_idx, split_bucket_page_id);
 
     split_bucket_page_raw->WLatch();
     // it's time to release the dir page latch
     ReleasePage(dir_page_raw, directory_page_id_, true, true);
-
     auto split_bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(split_bucket_page_raw->GetData());
-    // step 5
-    uint32_t split_idx = BucketSplit(bucket_page, split_bucket_page, high_bit);
 
+    // step 5
+    uint32_t split_count = BucketSplit(bucket_page, split_bucket_page, high_bit, split_image_idx);
     // step 6
     bool is_split_success = true;
-    bool is_to_split_image = (Hash(key) & high_bit) != 0;
+    bool is_to_split_image = KeyToBucketIndexByHighBit(high_bit, key) == split_image_idx;
     if (is_to_split_image) {
       has_inserted = split_bucket_page->Insert(key, value, comparator_);
-    } else if (split_idx > 0) {
+    } else if (split_count > 0) {
       // the key to be inserted is hashed into the pre-existing bucket
       has_inserted = bucket_page->Insert(key, value, comparator_);
     } else {
@@ -386,7 +384,7 @@ void HASH_TABLE_TYPE::Merge(Transaction *transaction, const KeyType &key, const 
 
   ReleasePage(dir_page_raw, directory_page_id_, has_modified, true);
   table_latch_.RUnlock();
-  // delete the bucket page, it should succeed perfectly cuz no one is able to find it right now
+  // delete the bucket page, it shall succeed perfectly cuz no one is able to find it right now
   assert(buffer_pool_manager_->DeletePage(bucket_page_id));
 }
 
@@ -397,15 +395,47 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 uint32_t HASH_TABLE_TYPE::GetGlobalDepth() {
   table_latch_.RLock();
 
-  Page *dir_page_raw = FetchDirectoryPage();
-  dir_page_raw->RLatch();
+  Page *dir_page_raw = AcquireDirPage(false);
   auto dir_page = reinterpret_cast<HashTableDirectoryPage *>(dir_page_raw->GetData());
   uint32_t global_depth = dir_page->GetGlobalDepth();
-  dir_page_raw->RUnlatch();
-  assert(buffer_pool_manager_->UnpinPage(directory_page_id_, false, nullptr));
+  ReleasePage(dir_page_raw, directory_page_id_, false, false);
 
   table_latch_.RUnlock();
   return global_depth;
+}
+
+template <typename KeyType, typename ValueType, typename KeyComparator>
+void HASH_TABLE_TYPE::VerifyIntegrityAndPrint() {
+  table_latch_.RLock();
+
+  Page *dir_page_raw = AcquireDirPage(false);
+
+  auto dir_page = reinterpret_cast<HashTableDirectoryPage *>(dir_page_raw->GetData());
+  dir_page->VerifyIntegrity();
+  dir_page->PrintDirectory();
+
+  // print all the buckets
+  LOG_DEBUG("Directory size = %d", dir_page->Size());
+  std::unordered_set<page_id_t> bucket_set{};
+  for (uint32_t bucket_idx = 0; bucket_idx < dir_page->Size(); bucket_idx++) {
+    page_id_t bucket_page_id = dir_page->GetBucketPageId(bucket_idx);
+    if (bucket_set.count(bucket_page_id) > 0) {
+      // already printed
+      continue;
+    } else {
+      bucket_set.insert(bucket_page_id);
+    }
+    Page *bucket_page_raw = AcquireBucketPage(bucket_page_id, false);
+    auto bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(bucket_page_raw->GetData());
+    LOG_DEBUG("\n=========== Start of Bucket Page ID = %d =========", bucket_page_id);
+    bucket_page->PrintBucket();
+    LOG_DEBUG("========= End of Bucket Page ID = %d =========\n", bucket_page_id);
+    ReleasePage(bucket_page_raw, bucket_page_id, false, false);
+  }
+
+  ReleasePage(dir_page_raw, directory_page_id_, false, false);
+
+  table_latch_.RUnlock();
 }
 
 /*****************************************************************************
@@ -424,9 +454,6 @@ void HASH_TABLE_TYPE::VerifyIntegrity() {
 
   table_latch_.RUnlock();
 }
-
-// TODO: 1. figure out add_test() in cmake, how to trigger valgrind?
-// 2. Test check: pin unpin pair, latch pair
 
 /*****************************************************************************
  * TEMPLATE DEFINITIONS - DO NOT TOUCH

@@ -32,9 +32,15 @@ cd <PROJECT_DIR>/build/src/CMakeFiles/bustub_shared.dir/storage/page
 gcov hash_table_directory_page.gcno
 # hash_table_bucket_page.cpp
 gcov hash_table_bucket_page.gcno
+lcov --capture --directory . --output-file hash_table_page_test.info
+genhtml hash_table_page_test.info --output-directory hash_table_page_test.dir
 
-lcov --capture --directory . --output-file hash_page_test.info
-genhtml hash_page_test.info --output-directory hash_page_test.dir
+cd <PROJECT_DIR>/build/src/CMakeFiles/bustub_shared.dir/container/hash
+# extendible_hash_table.cpp
+gcov extendible_hash_table.gcno
+lcov --capture --directory . --output-file hash_table_test.info
+genhtml hash_table_test.info --output-directory hash_table_test.dir
+```
 
 ## Test Coverage Settings
 ```

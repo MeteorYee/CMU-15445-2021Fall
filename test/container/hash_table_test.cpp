@@ -22,6 +22,10 @@
 namespace bustub {
 
 // NOLINTNEXTLINE
+// TODO: check line coverage in this file!!!
+// 2. split-insert and merge
+// 3. multi-thread sample
+// 4. multi-thread thrashing scenario
 
 // NOLINTNEXTLINE
 TEST(HashTableTest, SampleTest) {
@@ -110,6 +114,46 @@ TEST(HashTableTest, SampleTest) {
   }
 
   ht.VerifyIntegrity();
+
+  disk_manager->ShutDown();
+  remove("test.db");
+  delete disk_manager;
+  delete bpm;
+}
+
+TEST(HashTableTest, SplitInsertAndMergeTest) {
+  auto *disk_manager = new DiskManager("test.db");
+  auto *bpm = new BufferPoolManagerInstance(50, disk_manager);
+  ExtendibleHashTable<int, int, IntComparator> ht("blah", bpm, IntComparator(), HashFunction<int>());
+
+  // based on the size of HashTableBucketPage<int, int, IntComparator>
+  const int max_elements = 496;
+
+  // insert 5X max_elements which must cause at least two splits
+  const int factor = 5;
+  int dummy_key = 0;
+  int dummy_value = 0;
+  for (int k = 0; k < factor; k++) {
+    for (int i = 0; i < max_elements; i++) {
+      ht.Insert(nullptr, dummy_key, dummy_value);
+      dummy_key++;
+      dummy_value++;
+    }
+    ht.VerifyIntegrityAndPrint();
+  }
+
+  // remove everthing again
+  for (int k = 0; k < factor; k++) {
+    for (int i = 0; i < max_elements; i++) {
+      dummy_key--;
+      dummy_value--;
+      ht.Remove(nullptr, dummy_key, dummy_value);
+    }
+    ht.VerifyIntegrityAndPrint();
+  }
+
+  // ASSERT_EQ(0, ht.GetGlobalDepth());
+  // todo: calculate hash table elements size: CountElement
 
   disk_manager->ShutDown();
   remove("test.db");

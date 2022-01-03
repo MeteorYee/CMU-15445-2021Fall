@@ -30,4 +30,17 @@ class IntComparator {
     return 0;
   }
 };
+
+class Int64Comparator {
+ public:
+  inline int operator()(const int64_t lhs, const int64_t rhs) const {
+    if (lhs < rhs) {
+      return -1;
+    }
+    if (rhs < lhs) {
+      return 1;
+    }
+    return 0;
+  }
+};
 }  // namespace bustub

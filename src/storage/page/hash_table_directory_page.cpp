@@ -29,20 +29,24 @@ uint32_t HashTableDirectoryPage::GetGlobalDepth() { return global_depth_; }
 uint32_t HashTableDirectoryPage::GetGlobalDepthMask() { return (0x1 << global_depth_) - 1; }
 
 void HashTableDirectoryPage::IncrGlobalDepth() {
+  uint32_t size = Size();
   global_depth_++;
   uint32_t new_size = 0x1 << global_depth_;
   if (new_size > DIRECTORY_ARRAY_SIZE) {
     LOG_ERROR("Hash table directory overflow!");
     assert(new_size <= DIRECTORY_ARRAY_SIZE);
   }
-  for (uint32_t cur_idx = size_; cur_idx < new_size; cur_idx++) {
-    local_depths_[cur_idx] = local_depths_[cur_idx - size_];
-    bucket_page_ids_[cur_idx] = bucket_page_ids_[cur_idx - size_];
+  for (uint32_t cur_idx = size; cur_idx < new_size; cur_idx++) {
+    local_depths_[cur_idx] = local_depths_[cur_idx - size];
+    bucket_page_ids_[cur_idx] = bucket_page_ids_[cur_idx - size];
   }
-  size_ = new_size;
+  size = new_size;
 }
 
-void HashTableDirectoryPage::DecrGlobalDepth() { global_depth_--; }
+void HashTableDirectoryPage::DecrGlobalDepth() {
+  assert(global_depth_ > 0);
+  global_depth_--;
+}
 
 page_id_t HashTableDirectoryPage::GetBucketPageId(uint32_t bucket_idx) { return bucket_page_ids_[bucket_idx]; }
 
@@ -50,10 +54,10 @@ void HashTableDirectoryPage::SetBucketPageId(uint32_t bucket_idx, page_id_t buck
   bucket_page_ids_[bucket_idx] = bucket_page_id;
 }
 
-uint32_t HashTableDirectoryPage::Size() { return size_; }
+uint32_t HashTableDirectoryPage::Size() { return (0x1 << global_depth_); }
 
 bool HashTableDirectoryPage::CanShrink() {
-  for (uint32_t i = 0; i < size_; i++) {
+  for (uint32_t i = 0; i < Size(); i++) {
     if (local_depths_[i] == global_depth_) {
       return false;
     }
