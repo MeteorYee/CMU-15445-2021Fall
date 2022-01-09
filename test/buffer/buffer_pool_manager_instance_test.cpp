@@ -15,7 +15,7 @@
 #include <ctime>
 #include <random>
 #include <string>
-#include <thread>
+#include <thread>  // NOLINT
 #include <unordered_set>
 #include <vector>
 
@@ -120,6 +120,7 @@ class BufferPoolManagerInstanceTest : public ::testing::Test {
     }
   }
 
+  // NOLINTNEXTLINE
   void MultiThreadNewPage(int page_count_each, std::unordered_set<page_id_t> &expected_set) {
     std::mutex set_mutex;
 
@@ -150,10 +151,12 @@ class BufferPoolManagerInstanceTest : public ::testing::Test {
         bool flag = true;
         page->MetaLock();
         if (page->GetPinCount() != 1) {
+          // NOLINTNEXTLINE
           LOG_ERROR("the pin count = %d", page->GetPinCount());
           flag = false;
         }
         if (page_id_temp != page->GetPageId()) {
+          // NOLINTNEXTLINE
           LOG_ERROR("expected page_id: %d, actual page_id in buffer: %d", page_id_temp, page->GetPageId());
           flag = false;
         }
@@ -185,6 +188,7 @@ class BufferPoolManagerInstanceTest : public ::testing::Test {
       std::vector<page_id_t> id_vec{};
 
       // generate some random page ids
+      id_vec.reserve(page_count);
       for (int i = 0; i < page_count; i++) {
         id_vec.push_back(static_cast<page_id_t>(std::rand() % total_page_num));
       }

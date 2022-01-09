@@ -98,6 +98,7 @@ class ParallelBufferPoolManagerTest : public ::testing::Test {
     }
   }
 
+  // NOLINTNEXTLINE
   void MultiThreadNewPage(int page_count_each, std::unordered_set<page_id_t> &expected_set) {
     std::mutex set_mutex;
 
@@ -128,10 +129,12 @@ class ParallelBufferPoolManagerTest : public ::testing::Test {
         bool flag = true;
         page->MetaLock();
         if (page->GetPinCount() != 1) {
+          // NOLINTNEXTLINE
           LOG_ERROR("the pin count = %d", page->GetPinCount());
           flag = false;
         }
         if (page_id_temp != page->GetPageId()) {
+          // NOLINTNEXTLINE
           LOG_ERROR("expected page_id: %d, actual page_id in buffer: %d", page_id_temp, page->GetPageId());
           flag = false;
         }

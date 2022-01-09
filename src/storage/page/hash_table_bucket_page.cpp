@@ -102,7 +102,7 @@ ValueType HASH_TABLE_BUCKET_TYPE::ValueAt(uint32_t bucket_idx) const {
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void HASH_TABLE_BUCKET_TYPE::RemoveAt(uint32_t bucket_idx) {
   uint32_t bit_idx = bucket_idx / 8;
-  char bit = static_cast<char>(0x1) << (7 - bucket_idx % 8);
+  unsigned char bit = static_cast<unsigned char>(static_cast<uint32_t>(0x1) << (7 - bucket_idx % 8));
   // notice that we don't clear the occupied bit here, hence make it a tombstone
   readable_[bit_idx] &= ~bit;
 }
@@ -118,39 +118,41 @@ void HASH_TABLE_BUCKET_TYPE::InsertAt(uint32_t bucket_idx, KeyType key, ValueTyp
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsOccupied(uint32_t bucket_idx) const {
   assert(bucket_idx < BUCKET_ARRAY_SIZE);
-  int shift_length = 7 - (bucket_idx % 8);
-  const char *bitmap = occupied_ + (bucket_idx / 8);
-  return (*bitmap & (static_cast<char>(0x1) << shift_length)) != 0;
+  uint32_t shift_length = 7 - (bucket_idx % 8);
+  const unsigned char *bitmap = occupied_ + (bucket_idx / 8);
+  const unsigned char mask = static_cast<unsigned char>(static_cast<uint32_t>(0x1) << shift_length);
+  return (*bitmap & mask) != 0;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void HASH_TABLE_BUCKET_TYPE::SetOccupied(uint32_t bucket_idx) {
   assert(bucket_idx < BUCKET_ARRAY_SIZE);
-  int shift_length = 7 - (bucket_idx % 8);
-  char *bitmap = occupied_ + (bucket_idx / 8);
-  *bitmap |= (static_cast<char>(0x1) << shift_length);
+  uint32_t shift_length = 7 - (bucket_idx % 8);
+  unsigned char *bitmap = occupied_ + (bucket_idx / 8);
+  *bitmap |= static_cast<unsigned char>(static_cast<uint32_t>(0x1) << shift_length);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsReadable(uint32_t bucket_idx) const {
   assert(bucket_idx < BUCKET_ARRAY_SIZE);
-  int shift_length = 7 - (bucket_idx % 8);
-  const char *bitmap = readable_ + (bucket_idx / 8);
-  return (*bitmap & (static_cast<char>(0x1) << shift_length)) != 0;
+  uint32_t shift_length = 7 - (bucket_idx % 8);
+  const unsigned char *bitmap = readable_ + (bucket_idx / 8);
+  const unsigned char mask = static_cast<unsigned char>(static_cast<uint32_t>(0x1) << shift_length);
+  return (*bitmap & mask) != 0;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 void HASH_TABLE_BUCKET_TYPE::SetReadable(uint32_t bucket_idx) {
   assert(bucket_idx < BUCKET_ARRAY_SIZE);
-  int shift_length = 7 - (bucket_idx % 8);
-  char *bitmap = readable_ + (bucket_idx / 8);
-  *bitmap |= (static_cast<char>(0x1) << shift_length);
+  uint32_t shift_length = 7 - (bucket_idx % 8);
+  unsigned char *bitmap = readable_ + (bucket_idx / 8);
+  *bitmap |= static_cast<unsigned char>(static_cast<uint32_t>(0x1) << shift_length);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsFull() {
   int tail_bits = BUCKET_ARRAY_SIZE % 8;
-  char tail_byte = 0xff;
+  unsigned char tail_byte = 0xff;
   if (tail_bits > 0) {
     int shift = 8 - tail_bits;
     tail_byte = (tail_byte >> shift) << shift;
@@ -162,7 +164,7 @@ bool HASH_TABLE_BUCKET_TYPE::IsFull() {
   }
   // check the trailing bytes except the last one, because they are not enough
   // to construct a 64-bit word
-  char check_byte = 0xff;
+  unsigned char check_byte = 0xff;
   uint32_t limit = ((length - 1) >> 3) << 3;
   for (uint32_t i = limit; i < length - 1; i++) {
     if ((readable_[i] ^ check_byte) != 0) {

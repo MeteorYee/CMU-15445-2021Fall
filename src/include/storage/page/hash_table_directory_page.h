@@ -129,6 +129,11 @@ class HashTableDirectoryPage {
   bool CanShrink();
 
   /**
+   * @return true if the directory array has been used up, or false otherwise
+   */
+  bool IsFull();
+
+  /**
    * @return the current directory size
    */
   uint32_t Size();

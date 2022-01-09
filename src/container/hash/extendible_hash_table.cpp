@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <chrono>
+#include <chrono>  // NOLINT
 #include <iostream>
 #include <string>
 #include <thread>  // NOLINT
@@ -232,6 +232,7 @@ bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
   Page *bucket_page_raw = AcquireBucketPage(bucket_page_id, true);
   auto bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(bucket_page_raw->GetData());
   bool has_inserted = false;
+  bool is_split_success = true;
 
   /*
    * 1. increase the gloabl depth if needed
@@ -246,6 +247,13 @@ bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
     // step 1
     if (dir_page->GetLocalDepth(bucket_idx) == dir_page->GetGlobalDepth()) {
       // need to expand the directory array
+      if (dir_page->IsFull()) {
+        // the directory array can't grow anymore
+        LOG_WARN("The directory array is full and the hash table cannot grow anymore.");
+        ReleasePage(bucket_page_raw, bucket_page_id, false, true);
+        ReleasePage(dir_page_raw, directory_page_id_, false, true);
+        return false;
+      }
       dir_page->IncrGlobalDepth();
     }
     // step 2
@@ -254,6 +262,7 @@ bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
     // step 3
     uint32_t high_bit = dir_page->GetLocalHighBit(bucket_idx);
     uint32_t split_image_idx = bucket_idx ^ high_bit;
+    assert(bucket_idx != split_image_idx);
     dir_page->IncrLocalDepth(bucket_idx);
     dir_page->IncrLocalDepth(split_image_idx);
     // step 4
@@ -267,7 +276,6 @@ bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
     // step 5
     uint32_t split_count = BucketSplit(bucket_page, split_bucket_page, high_bit, split_image_idx);
     // step 6
-    bool is_split_success = true;
     bool is_to_split_image = KeyToBucketIndexByHighBit(high_bit, key) == split_image_idx;
     if (is_to_split_image) {
       has_inserted = split_bucket_page->Insert(key, value, comparator_);
@@ -289,7 +297,7 @@ bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
   }
 
   table_latch_.RUnlock();
-  return has_inserted;
+  return is_split_success ? has_inserted : SplitInsert(transaction, key, value);
 }
 
 /*****************************************************************************
@@ -310,11 +318,8 @@ bool HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
   ReleasePage(dir_page_raw, directory_page_id_, false, false);
 
   auto bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(bucket_page_raw->GetData());
-  if (bucket_page->IsEmpty()) {
-    need_merge = true;
-  } else {
-    has_removed = bucket_page->Remove(key, value, comparator_);
-  }
+  has_removed = bucket_page->Remove(key, value, comparator_);
+  need_merge = bucket_page->IsEmpty();
   ReleasePage(bucket_page_raw, bucket_page_id, has_removed, true);
   table_latch_.RUnlock();
 
@@ -332,24 +337,27 @@ void HASH_TABLE_TYPE::Merge(Transaction *transaction, const KeyType &key, const 
   table_latch_.RLock();
 
   bool has_modified = false;
+  bool need_merge_again = false;
   Page *dir_page_raw = AcquireDirPage(true);
   auto dir_page = reinterpret_cast<HashTableDirectoryPage *>(dir_page_raw->GetData());
   uint32_t bucket_idx = KeyToDirectoryIndex(key, dir_page);
   page_id_t bucket_page_id = dir_page->GetBucketPageId(bucket_idx);
+  uint32_t local_depth = dir_page->GetLocalDepth(bucket_idx);
 
   /*
    * 1. if the local depth of the bucket is zero, then give up merging, else goto step 2
    * 2. if the bucket is not empty, then give up merging, else goto step 3
    * 3. find the split image
    * 4. if the local depths differ, then give up merging, else goto step 5
-   * 5. decrease the local depths for both
-   * 6. redirect the dir pointer to the split image
+   * 5. decrease the local depths for all the split images (not just 2)
+   * 6. redirect the dir pointer to the split image's page
    * 7. decrease the gloabl depth if needed
    * 8. delete the redundant page
+   * 9. If the split image page is empty as well, continue the merge
    */
   do {
     // step 1
-    if (dir_page->GetLocalDepth(bucket_idx) == 0) {
+    if (local_depth == 0) {
       break;
     }
     // step 2
@@ -364,28 +372,45 @@ void HASH_TABLE_TYPE::Merge(Transaction *transaction, const KeyType &key, const 
     // the high_bit needs to right shift one bit because we are merging the bucket
     uint32_t high_bit = dir_page->GetLocalHighBit(bucket_idx) >> 1;
     uint32_t split_bucket_idx = bucket_idx ^ high_bit;
+    assert(bucket_idx != split_bucket_idx);
     page_id_t split_bucket_page_id = dir_page->GetBucketPageId(split_bucket_idx);
 
     // step 4
-    if (dir_page->GetLocalDepth(bucket_idx) != dir_page->GetLocalDepth(split_bucket_idx)) {
+    if (local_depth != dir_page->GetLocalDepth(split_bucket_idx)) {
       break;
     }
-    // step 5
-    dir_page->DecrLocalDepth(bucket_idx);
-    dir_page->DecrLocalDepth(split_bucket_idx);
-    // step 6
-    dir_page->SetBucketPageId(bucket_idx, split_bucket_page_id);
+    uint32_t new_depth = local_depth - 1;
+    uint32_t idx_num = 0x1 << (dir_page->GetGlobalDepth() - new_depth);
+    uint32_t mask = (0x1 << new_depth) - 1;
+    for (uint32_t i = 0; i < idx_num; i++) {
+      uint32_t idx = (i << new_depth) | (bucket_idx & mask);
+      // step 5
+      dir_page->DecrLocalDepth(idx);
+      // step 6
+      dir_page->SetBucketPageId(idx, split_bucket_page_id);
+    }
     // step 7
     if (dir_page->CanShrink()) {
       dir_page->DecrGlobalDepth();
     }
     has_modified = true;
+
+    Page *split_bucket_page_raw = AcquireBucketPage(split_bucket_page_id, false);
+    auto split_bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(split_bucket_page_raw->GetData());
+    need_merge_again = split_bucket_page->IsEmpty();
+    ReleasePage(split_bucket_page_raw, split_bucket_page_id, false, false);
   } while (false);
 
   ReleasePage(dir_page_raw, directory_page_id_, has_modified, true);
   table_latch_.RUnlock();
-  // delete the bucket page, it shall succeed perfectly cuz no one is able to find it right now
-  assert(buffer_pool_manager_->DeletePage(bucket_page_id));
+  // step 8: delete the bucket page, it shall succeed perfectly cuz no one is able to find it right now
+  if (has_modified) {
+    assert(buffer_pool_manager_->DeletePage(bucket_page_id));
+  }
+  // step 9
+  if (need_merge_again) {
+    Merge(transaction, key, value);
+  }
 }
 
 /*****************************************************************************
@@ -405,37 +430,44 @@ uint32_t HASH_TABLE_TYPE::GetGlobalDepth() {
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void HASH_TABLE_TYPE::VerifyIntegrityAndPrint() {
+void HASH_TABLE_TYPE::VerifyIntegrityAndPrint(size_t expected_size, bool print_info) {
+  size_t count = 0;
   table_latch_.RLock();
 
   Page *dir_page_raw = AcquireDirPage(false);
 
   auto dir_page = reinterpret_cast<HashTableDirectoryPage *>(dir_page_raw->GetData());
-  dir_page->VerifyIntegrity();
-  dir_page->PrintDirectory();
+  if (print_info) {
+    LOG_DEBUG("Directory size = %d", dir_page->Size());
+    dir_page->PrintDirectory();
+  }
 
-  // print all the buckets
-  LOG_DEBUG("Directory size = %d", dir_page->Size());
+  // traverse all the buckets
   std::unordered_set<page_id_t> bucket_set{};
   for (uint32_t bucket_idx = 0; bucket_idx < dir_page->Size(); bucket_idx++) {
     page_id_t bucket_page_id = dir_page->GetBucketPageId(bucket_idx);
     if (bucket_set.count(bucket_page_id) > 0) {
       // already printed
       continue;
-    } else {
-      bucket_set.insert(bucket_page_id);
     }
+    bucket_set.insert(bucket_page_id);
+
     Page *bucket_page_raw = AcquireBucketPage(bucket_page_id, false);
     auto bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(bucket_page_raw->GetData());
-    LOG_DEBUG("\n=========== Start of Bucket Page ID = %d =========", bucket_page_id);
-    bucket_page->PrintBucket();
-    LOG_DEBUG("========= End of Bucket Page ID = %d =========\n", bucket_page_id);
+    if (print_info) {
+      LOG_DEBUG("\n=========== Start of Bucket Page ID = %d =========", bucket_page_id);
+      bucket_page->PrintBucket();
+      LOG_DEBUG("========= End of Bucket Page ID = %d =========\n", bucket_page_id);
+    }
+    count += bucket_page->NumReadable();
     ReleasePage(bucket_page_raw, bucket_page_id, false, false);
   }
 
+  dir_page->VerifyIntegrity();
   ReleasePage(dir_page_raw, directory_page_id_, false, false);
 
   table_latch_.RUnlock();
+  assert(expected_size == count);
 }
 
 /*****************************************************************************

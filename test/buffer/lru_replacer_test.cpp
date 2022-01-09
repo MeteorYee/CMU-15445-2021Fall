@@ -33,6 +33,7 @@ TEST(LRUReplacerTest, OverflowTest) {
   EXPECT_EQ(2, lru_replacer.Size());
 }
 
+// NOLINTNEXTLINE
 TEST(LRUReplacerTest, InvalidIDTest) {
   LRUReplacer lru_replacer(3);
   lru_replacer.Unpin(1);
@@ -49,6 +50,7 @@ TEST(LRUReplacerTest, InvalidIDTest) {
   EXPECT_EQ(0, lru_replacer.Size());
 }
 
+// NOLINTNEXTLINE
 TEST(LRUReplacerTest, SampleTest) {
   LRUReplacer lru_replacer(7);
 
@@ -93,12 +95,14 @@ TEST(LRUReplacerTest, SampleTest) {
   EXPECT_EQ(4, value);
 }
 
+// NOLINTNEXTLINE
 TEST(LRUReplacerTest, MultiThreadPinUnpinTest) {
   LRUReplacer lru_replacer(1024);
 
   auto unpin_func = [&lru_replacer](frame_id_t frame_id) {
     std::stringstream ss;
     ss << std::this_thread::get_id();
+    // NOLINTNEXTLINE
     LOG_INFO("Thread %s tries to unpin the frames starting from id = %u", ss.str().c_str(), frame_id);
     for (frame_id_t i = frame_id; i < frame_id + 256; i++) {
       lru_replacer.Unpin(i);
@@ -120,6 +124,7 @@ TEST(LRUReplacerTest, MultiThreadPinUnpinTest) {
   auto pin_func = [&lru_replacer](frame_id_t frame_id) {
     std::stringstream ss;
     ss << std::this_thread::get_id();
+    // NOLINTNEXTLINE
     LOG_INFO("Thread %s tries to pin the frames starting from id = %u", ss.str().c_str(), frame_id);
     for (frame_id_t i = frame_id; i < frame_id + 256; i++) {
       lru_replacer.Pin(i);
@@ -139,12 +144,14 @@ TEST(LRUReplacerTest, MultiThreadPinUnpinTest) {
   EXPECT_EQ(0, lru_replacer.Size());
 }
 
+// NOLINTNEXTLINE
 TEST(LRUReplacerTest, MultiThreadUnpinVictimTest) {
   LRUReplacer lru_replacer(1024);
 
   auto unpin_func = [&lru_replacer](frame_id_t frame_id) {
     std::stringstream ss;
     ss << std::this_thread::get_id();
+    // NOLINTNEXTLINE
     LOG_INFO("Thread %s tries to unpin the frames starting from id = %u", ss.str().c_str(), frame_id);
     for (frame_id_t i = frame_id; i < frame_id + 256; i++) {
       lru_replacer.Unpin(i);
@@ -166,6 +173,7 @@ TEST(LRUReplacerTest, MultiThreadUnpinVictimTest) {
   auto victim_func = [&lru_replacer]() {
     std::stringstream ss;
     ss << std::this_thread::get_id();
+    // NOLINTNEXTLINE
     LOG_INFO("Thread %s tries to victim 256 frames", ss.str().c_str());
     int value;
     for (frame_id_t i = 0; i < 256; i++) {
@@ -187,6 +195,7 @@ TEST(LRUReplacerTest, MultiThreadUnpinVictimTest) {
 }
 
 #ifdef SPIN_LOCK_DEBUG
+// NOLINTNEXTLINE
 TEST(MySpinLockTest, SampleTest) {
   SpinLock spin_lock;
   int counter = 0;

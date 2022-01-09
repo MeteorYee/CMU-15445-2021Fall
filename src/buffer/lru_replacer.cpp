@@ -79,7 +79,8 @@ void LRUReplacer::Pin(frame_id_t frame_id) {
   std::unique_lock lock(mutex_);
 
   if (lru_vec_[frame_id] == nullptr) {
-    LOG_DEBUG("Trying to pin a non-existing frame, id = %d, may have been already victimed", frame_id);
+    // LOG_DEBUG("Trying to pin a non-existing frame, id = %d, may have been already victimed", frame_id);
+    // comment out the logging above to prevent spamming
     return;
   }
   LRUNode *node = lru_vec_[frame_id];
@@ -100,7 +101,8 @@ void LRUReplacer::Unpin(frame_id_t frame_id) {
   std::unique_lock lock(mutex_);
 
   if (lru_vec_[frame_id] != nullptr) {
-    LOG_DEBUG("Trying to unpin a frame (id = %d) multiple times", frame_id);
+    // LOG_DEBUG("Trying to unpin a frame (id = %d) multiple times", frame_id);
+    // comment out the logging above to prevent spamming
     return;
   }
   // insert into the list first

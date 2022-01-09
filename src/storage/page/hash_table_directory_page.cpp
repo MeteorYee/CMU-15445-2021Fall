@@ -40,7 +40,6 @@ void HashTableDirectoryPage::IncrGlobalDepth() {
     local_depths_[cur_idx] = local_depths_[cur_idx - size];
     bucket_page_ids_[cur_idx] = bucket_page_ids_[cur_idx - size];
   }
-  size = new_size;
 }
 
 void HashTableDirectoryPage::DecrGlobalDepth() {
@@ -53,6 +52,8 @@ page_id_t HashTableDirectoryPage::GetBucketPageId(uint32_t bucket_idx) { return 
 void HashTableDirectoryPage::SetBucketPageId(uint32_t bucket_idx, page_id_t bucket_page_id) {
   bucket_page_ids_[bucket_idx] = bucket_page_id;
 }
+
+bool HashTableDirectoryPage::IsFull() { return (Size() << 1) > DIRECTORY_ARRAY_SIZE; }
 
 uint32_t HashTableDirectoryPage::Size() { return (0x1 << global_depth_); }
 

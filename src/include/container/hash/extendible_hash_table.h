@@ -87,8 +87,11 @@ class ExtendibleHashTable {
   /**
    * Helper function to verify the integrity of the extendible hash table's directory. On top of that,
    * the function prints the pages info as well.
+   *
+   * @param expected_size the expected size of the hash table to be verified
+   * @param print_info true if the table info needs to be printed, or false otherwise
    */
-  void VerifyIntegrityAndPrint();
+  void VerifyIntegrityAndPrint(size_t expected_size, bool print_info);
 
  private:
   /**
