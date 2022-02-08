@@ -52,7 +52,7 @@ bool LRUReplacer::Victim(frame_id_t *frame_id) {
   if (frame_count_ == 0) {
     assert(dummy_->next_ == dummy_);
     assert(dummy_->prev_ == dummy_);
-    // LOG_DEBUG("Trying to get a victim out of an empty lru.");
+    LOG_DEBUG("Trying to get a victim out of an empty lru.");
     return false;
   }
   frame_id_t fid = dummy_->prev_->frame_id_;
@@ -79,7 +79,7 @@ void LRUReplacer::Pin(frame_id_t frame_id) {
   std::unique_lock lock(mutex_);
 
   if (lru_vec_[frame_id] == nullptr) {
-    // LOG_DEBUG("Trying to pin a non-existing frame, id = %d, may have been already victimed", frame_id);
+    LOG_DEBUG("Trying to pin a non-existing frame, id = %d, may have been already victimed", frame_id);
     // comment out the logging above to prevent spamming
     return;
   }
@@ -101,7 +101,7 @@ void LRUReplacer::Unpin(frame_id_t frame_id) {
   std::unique_lock lock(mutex_);
 
   if (lru_vec_[frame_id] != nullptr) {
-    // LOG_DEBUG("Trying to unpin a frame (id = %d) multiple times", frame_id);
+    LOG_DEBUG("Trying to unpin a frame (id = %d) multiple times", frame_id);
     // comment out the logging above to prevent spamming
     return;
   }
