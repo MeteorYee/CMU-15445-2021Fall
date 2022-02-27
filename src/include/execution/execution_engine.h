@@ -60,12 +60,15 @@ class ExecutionEngine {
       Tuple tuple;
       RID rid;
       while (executor->Next(&tuple, &rid)) {
-        if (result_set != nullptr) {
+        if (result_set != nullptr && tuple.IsAllocated()) {
           result_set->push_back(tuple);
         }
       }
     } catch (Exception &e) {
       // TODO(student): handle exceptions
+      LOG_WARN("Got an exception: %s", Exception::ExceptionTypeToString(e.GetType()).c_str());
+      // todo: Tx abort?
+      return false;
     }
 
     return true;

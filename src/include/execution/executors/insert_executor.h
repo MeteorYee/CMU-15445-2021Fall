@@ -14,6 +14,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
@@ -49,7 +50,9 @@ class InsertExecutor : public AbstractExecutor {
    * @return `true` if a tuple was produced, `false` if there are no more tuples
    *
    * NOTE: InsertExecutor::Next() does not use the `tuple` out-parameter.
-   * NOTE: InsertExecutor::Next() does not use the `rid` out-parameter.
+   * NOTE: InsertExecutor::Next() does not use the `rid` out-parameter. (I think
+   * this is not correct. The `rid` should be used to return the rid of the inserted
+   * tuple)
    */
   bool Next([[maybe_unused]] Tuple *tuple, RID *rid) override;
 
@@ -59,6 +62,24 @@ class InsertExecutor : public AbstractExecutor {
  private:
   /** The insert plan node to be executed*/
   const InsertPlanNode *plan_;
+  /** The table info */
+  const TableInfo *table_info_;
+
+  /** The indexes info of the table */
+  std::vector<IndexInfo *> indexes_;
+  /** The child executor, could be nullptr */
+  std::unique_ptr<AbstractExecutor> child_executor_;
+  /** The iterator of `raw values` */
+  std::vector<std::vector<Value>>::const_iterator raw_it_;
+
+  /**
+   * @brief A wrapper function to generate the next tuple to be inserted from `raw values`
+   * or `child executor`.
+   * @param tuple[out] The next tuple produced by `raw valued` or `child executor`
+   *
+   * @return True if a tuple was produced, or false otherwise
+   */
+  bool InnerNext(Tuple *tuple);
 };
 
 }  // namespace bustub

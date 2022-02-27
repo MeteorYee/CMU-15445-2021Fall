@@ -66,11 +66,25 @@ class UpdateExecutor : public AbstractExecutor {
    */
   Tuple GenerateUpdatedTuple(const Tuple &src_tuple);
 
+  /**
+   * @brief Check if the update triggers an index update
+   *
+   * @param key_attrs the indexed columns
+   * @return true the index needs to be revised, or false otherwise
+   */
+  bool NeedIndexUpdate(const std::vector<uint32_t> &key_attrs) const;
+
   /** The update plan node to be executed */
   const UpdatePlanNode *plan_;
   /** Metadata identifying the table that should be updated */
   const TableInfo *table_info_;
+
+  /** The indexes info of the table */
+  std::vector<IndexInfo *> indexes_;
   /** The child executor to obtain value from */
   std::unique_ptr<AbstractExecutor> child_executor_;
+
+  /** used to indicate if it's the first update run */
+  bool is_first_run_{true};
 };
 }  // namespace bustub

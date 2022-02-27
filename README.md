@@ -24,7 +24,7 @@ lcov --capture --directory . --output-file project1_test.info
 genhtml project1_test.info --output-directory project1_test.dir
 ```
 
-# Project 2
+## Project 2
 ### Test Coverage
 ![](https://github.com/MeteorYee/still-working/blob/dev/master/images/project2_page_test_lc.png)
 
@@ -49,6 +49,22 @@ cd <PROJECT_DIR>/build/src/CMakeFiles/bustub_shared.dir/container/hash
 gcov extendible_hash_table.gcno
 lcov --capture --directory . --output-file hash_table_test.info
 genhtml hash_table_test.info --output-directory hash_table_test.dir
+```
+
+## Project 3
+# Test Coverage
+
+![](https://github.com/MeteorYee/still-working/blob/dev/master/images/project3-test-coverage.png)
+
+All the basic funtionality have been tested, whereas some of the exceptional cases are not covered yet. Those exceptions will be taken care of in the future in accordance with the transaction relevant stuff.
+
+### Test Coverage Calculation
+```
+cd <PROJECT_DIR>/build/src/CMakeFiles/bustub_shared.dir/execution
+# *_executor.cpp
+gcov *_executor.gcno
+lcov --capture --directory . --output-file executor_test.info
+genhtml executor_test.info --output-directory executor_test.dir
 ```
 
 ## Test Coverage Settings
