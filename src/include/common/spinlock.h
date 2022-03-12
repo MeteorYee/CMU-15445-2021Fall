@@ -23,19 +23,21 @@ class SpinLock {
  private:
   static constexpr int MAX_TRY_TIMES = 10;
 
-  std::atomic_flag mlock_ = ATOMIC_FLAG_INIT;
+  std::atomic_bool mlock_;
 #ifdef SPIN_LOCK_DEBUG
   uint64_t counter_ = 0;
   uint64_t lock_counter_ = 0;
 #endif
 
  public:
-  SpinLock() = default;
+  SpinLock() : mlock_{false} {}
   DISALLOW_COPY(SpinLock);
 
   void Lock() noexcept {
     int try_count = 1;
-    while (mlock_.test_and_set(std::memory_order_acquire)) {
+    bool expect = false;
+    while (!mlock_.compare_exchange_weak(expect, true, std::memory_order_relaxed, std::memory_order_acquire)) {
+      expect = false;  // reset the expect
       if (try_count == MAX_TRY_TIMES) {
         try_count = 0;
 #ifdef SPIN_LOCK_DEBUG
@@ -45,13 +47,14 @@ class SpinLock {
       }
       try_count++;
     }
+
 #ifdef SPIN_LOCK_DEBUG
     counter_ += try_count;
     lock_counter_++;
 #endif
   }
 
-  void Unlock() noexcept { mlock_.clear(std::memory_order_release); }
+  void Unlock() noexcept { mlock_.store(false, std::memory_order_release); }
 
 #ifdef SPIN_LOCK_DEBUG
   void PrintStats() {
