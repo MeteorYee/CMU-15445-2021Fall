@@ -195,7 +195,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    * protected by the *table_mutex_* decalred below. The *replacer_* is thread-safe per se. Therefore, only the
    * free list needs to be protected by the latch.
    */
-  std::mutex latch_;
+  SpinLock list_latch_;
   /**
    * This shared mutex protects the consistency of page table.
    *

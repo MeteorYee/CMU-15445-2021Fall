@@ -269,10 +269,9 @@ bool BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) {
    * it's dirty, because we are deleting it. */
 
   // return it back to the free list
-  {
-    std::scoped_lock lock(latch_);
-    free_list_.push_back(frame_id);
-  }
+  list_latch_.Lock();
+  free_list_.push_back(frame_id);
+  list_latch_.Unlock();
   return true;
 }
 
@@ -340,14 +339,14 @@ void BufferPoolManagerInstance::InnerPageFlush(Page *page) {
 
 frame_id_t BufferPoolManagerInstance::FreeListGetFrame(page_id_t *page_id) {
   frame_id_t frame_id;
-  {
-    std::scoped_lock lock(latch_);
-    if (free_list_.empty()) {
-      return INVALID_FRAME_ID;
-    }
-    frame_id = free_list_.front();
-    free_list_.pop_front();
+  list_latch_.Lock();
+  if (free_list_.empty()) {
+    list_latch_.Unlock();
+    return INVALID_FRAME_ID;
   }
+  frame_id = free_list_.front();
+  free_list_.pop_front();
+  list_latch_.Unlock();
 
   Page *page = pages_ + frame_id;
   page_id_t new_page_id = *page_id;
@@ -371,10 +370,9 @@ frame_id_t BufferPoolManagerInstance::FreeListGetFrame(page_id_t *page_id) {
       page->WLatch();
     } else {  // This is guaranteed to be not the NewPage() case.
       // if someone has already done the same thing, then just insert the free frame back
-      {
-        std::scoped_lock lock(latch_);
-        free_list_.emplace_back(frame_id);
-      }
+      list_latch_.Lock();
+      free_list_.emplace_back(frame_id);
+      list_latch_.Unlock();
 
       /* Yet another page, this is to differentiate with the page got from lru. The two variables are used when
        * another thread has already initialized a victim for us. */
