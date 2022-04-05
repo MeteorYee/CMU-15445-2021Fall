@@ -31,20 +31,26 @@ bool DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   Tuple temp_tuple;
   RID temp_rid;
   if (!child_executor_->Next(&temp_tuple, &temp_rid)) {
-    if (is_first_run_) {
-      throw Exception(ExceptionType::INVALID, "Found nothing to delete given the conditions.");
-    }
+    // Found nothing to delete given the conditions
     return false;
   }
-  is_first_run_ = false;
+  Transaction *txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::REPEATABLE_READ) {
+    exec_ctx_->GetLockManager()->LockUpgrade(txn, temp_rid);
+  } else {
+    exec_ctx_->GetLockManager()->LockExclusive(txn, temp_rid);
+  }
+
   if (!table_info_->table_->MarkDelete(temp_rid, exec_ctx_->GetTransaction())) {
-    throw Exception(ExceptionType::INVALID, "Found nothing to delete given the conditions.");
+    LOG_WARN("Found nothing to delete in the table, wrong page!");
+    return false;
   }
   // revise the indexes accordingly, it will skip the for loop if there is no indexes at all
   for (const auto index : indexes_) {
     index->index_->DeleteEntry(
-        temp_tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), temp_rid,
-        exec_ctx_->GetTransaction());
+        temp_tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), temp_rid, txn);
+    txn->GetIndexWriteSet()->emplace_back(temp_rid, table_info_->oid_, WType::DELETE, temp_tuple, index->index_oid_,
+                                          exec_ctx_->GetCatalog());
   }
   return true;
 }

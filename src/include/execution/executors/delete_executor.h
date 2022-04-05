@@ -65,8 +65,5 @@ class DeleteExecutor : public AbstractExecutor {
   std::vector<IndexInfo *> indexes_;
   /** The child executor from which RIDs for deleted tuples are pulled */
   std::unique_ptr<AbstractExecutor> child_executor_;
-
-  /** used to indicate if it's the first delete run */
-  bool is_first_run_{true};
 };
 }  // namespace bustub

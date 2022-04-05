@@ -35,20 +35,31 @@ void InsertExecutor::Init() {
 bool InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   Tuple temp_tuple;
   RID temp_rid;
+  Transaction *txn = exec_ctx_->GetTransaction();
   if (!InnerNext(&temp_tuple)) {
     // if there is no more tuple to be inserted
     return false;
   }
-  if (!table_info_->table_->InsertTuple(temp_tuple, &temp_rid, exec_ctx_->GetTransaction())) {
+  if (!table_info_->table_->InsertTuple(temp_tuple, &temp_rid, txn)) {
     // The insertion failed and the transaction is aborted.
-    throw Exception(ExceptionType::INVALID, "Failed to execute the insertion.");
+    return false;
   }
+  exec_ctx_->GetLockManager()->LockExclusive(txn, temp_rid);
   *rid = temp_rid;
+  /* CAVEAT:
+   * 1. There is no concurrency control of indexes at present.
+   * 2. This is the place that causes phantom read.
+   * 3. The table level lock should prevent any update/delete operations from modifying the same row,
+   *    otherwise there may be race conditions which will make the DB inconsistent. In other words,
+   *    we need an SIX lock on the table. (Another way to neutralize the scenario is to have the tuple
+   *    carry transaction information so that we can control the concurrent operations accordingly.)
+   */
   // insert into the indexes if applies, it will skip the for loop if there is no indexes at all
   for (const auto index : indexes_) {
     index->index_->InsertEntry(
-        temp_tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), temp_rid,
-        exec_ctx_->GetTransaction());
+        temp_tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, index->index_->GetKeyAttrs()), temp_rid, txn);
+    txn->GetIndexWriteSet()->emplace_back(temp_rid, table_info_->oid_, WType::INSERT, temp_tuple, index->index_oid_,
+                                          exec_ctx_->GetCatalog());
   }
   return true;
 }

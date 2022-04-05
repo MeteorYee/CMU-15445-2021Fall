@@ -83,8 +83,5 @@ class UpdateExecutor : public AbstractExecutor {
   std::vector<IndexInfo *> indexes_;
   /** The child executor to obtain value from */
   std::unique_ptr<AbstractExecutor> child_executor_;
-
-  /** used to indicate if it's the first update run */
-  bool is_first_run_{true};
 };
 }  // namespace bustub

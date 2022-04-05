@@ -29,9 +29,11 @@
 #include "execution/expressions/column_value_expression.h"
 #include "execution/expressions/comparison_expression.h"
 #include "execution/expressions/constant_value_expression.h"
+#include "execution/plans/delete_plan.h"
 #include "execution/plans/limit_plan.h"
 #include "execution/plans/nested_index_join_plan.h"
 #include "execution/plans/seq_scan_plan.h"
+#include "execution/plans/update_plan.h"
 #include "gtest/gtest.h"
 #include "test_util.h"  // NOLINT
 #include "type/value_factory.h"
@@ -162,7 +164,7 @@ void CheckTxnLockSize(Transaction *txn, size_t shared_size, size_t exclusive_siz
 }
 
 // NOLINTNEXTLINE
-TEST_F(TransactionTest, DISABLED_SimpleInsertRollbackTest) {
+TEST_F(TransactionTest, SimpleInsertRollbackTest) {
   // txn1: INSERT INTO empty_table2 VALUES (200, 20), (201, 21), (202, 22)
   // txn1: abort
   // txn2: SELECT * FROM empty_table2;
@@ -202,7 +204,7 @@ TEST_F(TransactionTest, DISABLED_SimpleInsertRollbackTest) {
 }
 
 // NOLINTNEXTLINE
-TEST_F(TransactionTest, DISABLED_DirtyReadsTest) {
+TEST_F(TransactionTest, DirtyReadsTest) {
   // txn1: INSERT INTO empty_table2 VALUES (200, 20), (201, 21), (202, 22)
   // txn2: SELECT * FROM empty_table2;
   // txn1: abort
@@ -249,6 +251,130 @@ TEST_F(TransactionTest, DISABLED_DirtyReadsTest) {
   // Size
   ASSERT_EQ(result_set.size(), 3);
 
+  GetTxnManager()->Commit(txn2);
+  delete txn2;
+}
+
+// NOLINTNEXTLINE
+TEST_F(TransactionTest, UnrepeatableReadByUpdateTest) {
+  // txn1: INSERT INTO empty_table2 VALUES (200, 20)
+  // txn1: commit
+  // txn2: SELECT * FROM empty_table2;
+  // txn3: UPDATE empty_table2 SET colB = 99;
+  // txn3: commit
+  // txn2: SELECT * FROM empty_table2; (colB == 99)
+  // txn2: commit
+  auto txn1 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx1 = std::make_unique<ExecutorContext>(txn1, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  // Create Values to insert
+  std::vector<Value> val1{ValueFactory::GetIntegerValue(200), ValueFactory::GetIntegerValue(20)};
+  std::vector<std::vector<Value>> raw_vals{val1};
+  // Create insert plan node
+  auto table_info = exec_ctx1->GetCatalog()->GetTable("empty_table2");
+  InsertPlanNode insert_plan{std::move(raw_vals), table_info->oid_};
+
+  ASSERT_TRUE(GetExecutionEngine()->Execute(&insert_plan, nullptr, txn1, exec_ctx1.get()));
+  GetTxnManager()->Commit(txn1);
+  delete txn1;
+
+  // Iterate through table to read the tuples.
+  auto txn2 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx2 = std::make_unique<ExecutorContext>(txn2, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  auto &schema = table_info->schema_;
+  auto col_a = MakeColumnValueExpression(schema, 0, "colA");
+  auto col_b = MakeColumnValueExpression(schema, 0, "colB");
+  auto out_schema = MakeOutputSchema({{"colA", col_a}, {"colB", col_b}});
+  SeqScanPlanNode scan_plan{out_schema, nullptr, table_info->oid_};
+
+  std::vector<Tuple> result_set;
+  GetExecutionEngine()->Execute(&scan_plan, &result_set, txn2, exec_ctx2.get());
+
+  // First value
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 200);
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colB")).GetAs<int32_t>(), 20);
+  // Size
+  ASSERT_EQ(result_set.size(), 1);
+
+  // txn3
+  auto txn3 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx3 = std::make_unique<ExecutorContext>(txn3, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  // Construct an update plan
+  std::unordered_map<uint32_t, UpdateInfo> update_attrs{};
+  update_attrs.emplace(static_cast<uint32_t>(1), UpdateInfo{UpdateType::Set, 99});
+  std::unique_ptr<AbstractPlanNode> update_plan =
+      std::make_unique<UpdatePlanNode>(&scan_plan, table_info->oid_, update_attrs);
+
+  ASSERT_TRUE(GetExecutionEngine()->Execute(update_plan.get(), nullptr, txn3, exec_ctx3.get()));
+  GetTxnManager()->Commit(txn3);
+  delete txn3;
+
+  // execute the txn2's selection once again, and UNREPEATABLE READ comes out
+  result_set.clear();
+  ASSERT_TRUE(GetExecutionEngine()->Execute(&scan_plan, &result_set, txn2, exec_ctx2.get()));
+  // First value
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 200);
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colB")).GetAs<int32_t>(), 99);
+  // Size
+  ASSERT_EQ(result_set.size(), 1);
+  GetTxnManager()->Commit(txn2);
+  delete txn2;
+}
+
+// NOLINTNEXTLINE
+TEST_F(TransactionTest, UnrepeatableReadByDeleteTest) {
+  // txn1: INSERT INTO empty_table2 VALUES (200, 20)
+  // txn1: commit
+  // txn2: SELECT * FROM empty_table2;
+  // txn3: DELETE FROM empty_table2 WHERE colA = 200;
+  // txn3: commit
+  // txn2: SELECT * FROM empty_table2; (nothing)
+  // txn2: commit
+  auto txn1 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx1 = std::make_unique<ExecutorContext>(txn1, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  // Create Values to insert
+  std::vector<Value> val1{ValueFactory::GetIntegerValue(200), ValueFactory::GetIntegerValue(20)};
+  std::vector<std::vector<Value>> raw_vals{val1};
+  // Create insert plan node
+  auto table_info = exec_ctx1->GetCatalog()->GetTable("empty_table2");
+  InsertPlanNode insert_plan{std::move(raw_vals), table_info->oid_};
+
+  ASSERT_TRUE(GetExecutionEngine()->Execute(&insert_plan, nullptr, txn1, exec_ctx1.get()));
+  GetTxnManager()->Commit(txn1);
+  delete txn1;
+
+  // Iterate through table to read the tuples.
+  auto txn2 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx2 = std::make_unique<ExecutorContext>(txn2, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  auto &schema = table_info->schema_;
+  auto col_a = MakeColumnValueExpression(schema, 0, "colA");
+  auto col_b = MakeColumnValueExpression(schema, 0, "colB");
+  auto out_schema = MakeOutputSchema({{"colA", col_a}, {"colB", col_b}});
+  SeqScanPlanNode scan_plan{out_schema, nullptr, table_info->oid_};
+
+  std::vector<Tuple> result_set;
+  GetExecutionEngine()->Execute(&scan_plan, &result_set, txn2, exec_ctx2.get());
+
+  // First value
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 200);
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colB")).GetAs<int32_t>(), 20);
+  // Size
+  ASSERT_EQ(result_set.size(), 1);
+
+  // txn3
+  auto txn3 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx3 = std::make_unique<ExecutorContext>(txn3, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  // Construct a delete plan
+  std::unique_ptr<AbstractPlanNode> delete_plan = std::make_unique<DeletePlanNode>(&scan_plan, table_info->oid_);
+
+  ASSERT_TRUE(GetExecutionEngine()->Execute(delete_plan.get(), nullptr, txn3, exec_ctx3.get()));
+  GetTxnManager()->Commit(txn3);
+  delete txn3;
+
+  // execute the txn2's selection once again, and UNREPEATABLE READ comes out
+  result_set.clear();
+  ASSERT_TRUE(GetExecutionEngine()->Execute(&scan_plan, &result_set, txn2, exec_ctx2.get()));
+  // Size
+  ASSERT_EQ(result_set.size(), 0);
   GetTxnManager()->Commit(txn2);
   delete txn2;
 }

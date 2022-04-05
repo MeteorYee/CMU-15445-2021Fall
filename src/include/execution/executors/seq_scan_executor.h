@@ -48,6 +48,18 @@ class SeqScanExecutor : public AbstractExecutor {
   const Schema *GetOutputSchema() override { return plan_->OutputSchema(); }
 
  private:
+  /**
+   * The routine after we fetch a tuple.
+   * @param rid the tuple's rid
+   */
+  void TupleEntry(RID rid);
+
+  /**
+   * The routine before we return a tuple.
+   * @param rid the tuple's rid
+   */
+  void TupleExit(RID rid);
+
   /** The sequential scan plan node to be executed */
   const SeqScanPlanNode *plan_;
   /** The table info to be scanned */

@@ -65,13 +65,17 @@ class ExecutionEngine {
         }
       }
     } catch (Exception &e) {
-      // TODO(student): handle exceptions
-      LOG_WARN("Got an exception: %s", Exception::ExceptionTypeToString(e.GetType()).c_str());
-      // todo: Tx abort?
-      return false;
+      LOG_WARN("Got an operational exception: %s", Exception::ExceptionTypeToString(e.GetType()).c_str());
+      txn->SetState(TransactionState::ABORTED);
+    } catch (TransactionAbortException &e) {
+      LOG_WARN("Got a transaction exception: %s", e.GetInfo().c_str());
+      BUSTUB_ASSERT(txn->GetState() == TransactionState::ABORTED, "The transaction must have been aborted.");
+    } catch (std::exception &e) {
+      LOG_ERROR("Got an unknown exception.");
+      txn->SetState(TransactionState::ABORTED);
     }
 
-    return true;
+    return txn->GetState() == TransactionState::ABORTED ? false : true;
   }
 
  private:

@@ -30,30 +30,32 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   Tuple old_tuple;
   RID old_rid;
   if (!child_executor_->Next(&old_tuple, &old_rid)) {
-    if (is_first_run_) {
-      throw Exception(ExceptionType::INVALID, "Found nothing to update given the conditions.");
-    }
+    // Found nothing to update given the conditions
     return false;
   }
 
-  is_first_run_ = false;
   Tuple new_tuple = GenerateUpdatedTuple(old_tuple);
   RID new_rid = {old_rid.GetPageId(), old_rid.GetSlotNum()};
   TableHeap *table = table_info_->table_.get();
-  Transaction *tx = exec_ctx_->GetTransaction();
-  bool is_updated = table->UpdateTuple(new_tuple, old_rid, tx);
+  Transaction *txn = exec_ctx_->GetTransaction();
+  bool is_updated = table->UpdateTuple(new_tuple, old_rid, txn);
   bool is_delete_insert = false;
+
+  if (txn->GetIsolationLevel() == IsolationLevel::REPEATABLE_READ) {
+    exec_ctx_->GetLockManager()->LockUpgrade(txn, old_rid);
+  } else {
+    exec_ctx_->GetLockManager()->LockExclusive(txn, old_rid);
+  }
   if (!is_updated) {
-    if (tx->GetState() == TransactionState::ABORTED) {
-      throw Exception(ExceptionType::INVALID, "Failed to update the tuple");
+    if (txn->GetState() == TransactionState::ABORTED) {
+      return false;
     }
     // it's probably failed due to lack of space, hence we need to delete and insert
-    if (!table->MarkDelete(old_rid, tx)) {
-      throw Exception(ExceptionType::INVALID, "Failed to update the tuple");
+    if (!(table->MarkDelete(old_rid, txn) && table->InsertTuple(new_tuple, &new_rid, txn))) {
+      return false;
     }
-    if (!table->InsertTuple(new_tuple, &new_rid, tx)) {
-      throw Exception(ExceptionType::INVALID, "Failed to update the tuple");
-    }
+    // NOTE: table level lock SIX? How to prevent concurrent updates/deletes on the newly inserted one?
+    exec_ctx_->GetLockManager()->LockExclusive(txn, new_rid);
     is_delete_insert = true;
   }
   // revise the indexes accordingly, it will skip the for loop if there is no indexes at all
@@ -66,8 +68,10 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
     }
     const auto &old_key = old_tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, key_attrs);
     const auto &new_key = new_tuple.KeyFromTuple(table_info_->schema_, index->key_schema_, key_attrs);
-    index->index_->DeleteEntry(old_key, old_rid, tx);
-    index->index_->InsertEntry(new_key, new_rid, tx);
+    index->index_->DeleteEntry(old_key, old_rid, txn);
+    index->index_->InsertEntry(new_key, new_rid, txn);
+    txn->GetIndexWriteSet()->emplace_back(old_rid, table_info_->oid_, WType::UPDATE, old_tuple, index->index_oid_,
+                                          exec_ctx_->GetCatalog());
   }
   return true;
 }

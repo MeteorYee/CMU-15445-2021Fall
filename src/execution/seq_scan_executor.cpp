@@ -26,8 +26,11 @@ void SeqScanExecutor::Init() { tbit_ = table_info_->table_->Begin(exec_ctx_->Get
 
 bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
   const AbstractExpression *pred = plan_->GetPredicate();
+
   while (tbit_ != table_info_->table_->End()) {
+    TupleEntry(tbit_->GetRid());
     if (pred != nullptr && !pred->Evaluate(&(*tbit_), &table_info_->schema_).GetAs<bool>()) {
+      TupleExit(tbit_->GetRid());
       ++tbit_;
       continue;
     }
@@ -39,10 +42,26 @@ bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
     }
     *tuple = Tuple(values, output_schema_);
     *rid = tbit_->GetRid();
+    TupleExit(tbit_->GetRid());
     ++tbit_;
     return true;
   }
   return false;
+}
+
+void SeqScanExecutor::TupleEntry(RID rid) {
+  Transaction *txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::READ_UNCOMMITTED) {
+    return;
+  }
+  exec_ctx_->GetLockManager()->LockShared(txn, rid);
+}
+
+void SeqScanExecutor::TupleExit(RID rid) {
+  Transaction *txn = exec_ctx_->GetTransaction();
+  if (txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED) {
+    exec_ctx_->GetLockManager()->Unlock(txn, rid);
+  }
 }
 
 }  // namespace bustub

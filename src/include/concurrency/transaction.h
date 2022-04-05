@@ -229,13 +229,13 @@ class Transaction {
   bool IsExclusiveLocked(const RID &rid) { return exclusive_lock_set_->find(rid) != exclusive_lock_set_->end(); }
 
   /** @return the current state of the transaction */
-  inline TransactionState GetState() { return state_; }
+  inline TransactionState GetState() { return state_.load(std::memory_order_relaxed); }
 
   /**
    * Set the state of the transaction.
    * @param state new state
    */
-  inline void SetState(TransactionState state) { state_ = state; }
+  inline void SetState(TransactionState state) { state_.store(state, std::memory_order_relaxed); }
 
   /** @return the previous LSN */
   inline lsn_t GetPrevLSN() { return prev_lsn_; }
@@ -248,7 +248,7 @@ class Transaction {
 
  private:
   /** The current transaction state. */
-  TransactionState state_;
+  std::atomic<TransactionState> state_;
   /** The isolation level of the transaction. */
   IsolationLevel isolation_level_;
   /** The thread ID, used in single-threaded transactions. */

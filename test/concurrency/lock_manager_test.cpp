@@ -77,7 +77,7 @@ void BasicTest1() {
     delete txns[i];
   }
 }
-TEST(LockManagerTest, DISABLED_BasicTest) { BasicTest1(); }
+TEST(LockManagerTest, BasicTest) { BasicTest1(); }
 
 void TwoPLTest() {
   LockManager lock_mgr{};
@@ -123,7 +123,7 @@ void TwoPLTest() {
 
   delete txn;
 }
-TEST(LockManagerTest, DISABLED_TwoPLTest) { TwoPLTest(); }
+TEST(LockManagerTest, TwoPLTest) { TwoPLTest(); }
 
 void UpgradeTest() {
   LockManager lock_mgr{};
@@ -150,7 +150,7 @@ void UpgradeTest() {
   txn_mgr.Commit(&txn);
   CheckCommitted(&txn);
 }
-TEST(LockManagerTest, DISABLED_UpgradeLockTest) { UpgradeTest(); }
+TEST(LockManagerTest, UpgradeLockTest) { UpgradeTest(); }
 
 void WoundWaitBasicTest() {
   LockManager lock_mgr{};
@@ -202,6 +202,198 @@ void WoundWaitBasicTest() {
   txn_mgr.Commit(&txn_hold);
   CheckCommitted(&txn_hold);
 }
-TEST(LockManagerTest, DISABLED_WoundWaitBasicTest) { WoundWaitBasicTest(); }
+TEST(LockManagerTest, WoundWaitGrantAbortTest) { WoundWaitBasicTest(); }
+
+// NOLINTNEXTLINE
+TEST(LockManagerTest, CornerCaseTest) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  RID rid1{0, 0};
+  RID rid2{0, 1};
+
+  Transaction txn{0};
+  txn_mgr.Begin(&txn);
+
+  ASSERT_TRUE(lock_mgr.LockShared(&txn, rid1));
+  // re-entering is ok
+  ASSERT_TRUE(lock_mgr.LockShared(&txn, rid1));
+  CheckGrowing(&txn);
+  CheckTxnLockSize(&txn, 1, 0);
+
+  ASSERT_TRUE(lock_mgr.LockExclusive(&txn, rid2));
+  // re-entering is ok
+  ASSERT_TRUE(lock_mgr.LockExclusive(&txn, rid2));
+  CheckGrowing(&txn);
+  CheckTxnLockSize(&txn, 1, 1);
+
+  ASSERT_TRUE(lock_mgr.LockUpgrade(&txn, rid1));
+  // re-entering is ok
+  ASSERT_TRUE(lock_mgr.LockUpgrade(&txn, rid1));
+  CheckGrowing(&txn);
+  CheckTxnLockSize(&txn, 0, 2);
+
+  // we haven't acquired the lock, hence false
+  ASSERT_FALSE(lock_mgr.Unlock(&txn, {1, 1}));
+
+  txn_mgr.Commit(&txn);
+  CheckCommitted(&txn);
+}
+
+// NOLINTNEXTLINE
+TEST(LockManagerTest, ReadUncommitedTest) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  RID rid1{0, 0};
+  RID rid2{0, 1};
+
+  Transaction txn{0, IsolationLevel::READ_UNCOMMITTED};
+  txn_mgr.Begin(&txn);
+
+  try {
+    (void)lock_mgr.LockShared(&txn, rid1);
+    FAIL();
+  } catch (TransactionAbortException &e) {
+    ASSERT_EQ(e.GetAbortReason(), AbortReason::LOCKSHARED_ON_READ_UNCOMMITTED);
+    CheckAborted(&txn);
+    // Size shouldn't change here
+    CheckTxnLockSize(&txn, 0, 0);
+    txn_mgr.Abort(&txn);
+  }
+}
+
+// NOLINTNEXTLINE
+TEST(LockManagerTest, WoundWaitWaitAbortTest) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  RID rid{0, 0};
+
+  int id_killer = 0;
+  int id_hold = 1;
+  int id_wait_die = 2;
+
+  Transaction txn_hold{id_hold};
+  txn_mgr.Begin(&txn_hold);
+
+  ASSERT_TRUE(lock_mgr.LockExclusive(&txn_hold, rid));
+  CheckGrowing(&txn_hold);
+  CheckTxnLockSize(&txn_hold, 0, 1);
+
+  auto wait_die_task = [&]() {
+    // younger transaction acquires the lock of rid_a and wait there
+    Transaction txn_die(id_wait_die);
+    txn_mgr.Begin(&txn_die);
+
+    try {
+      (void)lock_mgr.LockShared(&txn_die, rid);
+    } catch (TransactionAbortException &e) {
+      ASSERT_EQ(e.GetAbortReason(), AbortReason::DEADLOCK);
+      CheckAborted(&txn_die);
+      // Size shouldn't change here
+      CheckTxnLockSize(&txn_die, 0, 0);
+    }
+    // unlock
+    txn_mgr.Abort(&txn_die);
+  };
+  std::thread wait_thread{wait_die_task};
+
+  // wait for a while to let the wait task get into the queue
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  auto killer_task = [&]() {
+    Transaction txn_killer(id_killer);
+    txn_mgr.Begin(&txn_killer);
+
+    ASSERT_TRUE(lock_mgr.LockShared(&txn_killer, rid));
+    CheckTxnLockSize(&txn_killer, 1, 0);
+    CheckGrowing(&txn_killer);
+    txn_mgr.Commit(&txn_killer);
+    CheckCommitted(&txn_killer);
+  };
+  std::thread killer_thread{killer_task};
+
+  const int max_tries = 100;
+  int count = 0;
+  while (txn_hold.GetState() != TransactionState::ABORTED) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ++count;
+    if (count == max_tries) {
+      LOG_ERROR("The killer transaction might not have killed myself.");
+      FAIL();
+    }
+  }
+
+  CheckAborted(&txn_hold);
+  try {
+    (void)lock_mgr.LockExclusive(&txn_hold, {0, 1});
+  } catch (TransactionAbortException &e) {
+    ASSERT_EQ(e.GetAbortReason(), AbortReason::DEADLOCK);
+    txn_mgr.Abort(&txn_hold);
+  }
+
+  killer_thread.join();
+  wait_thread.join();
+}
+
+TEST(LockManagerTest, UpgradeConflictTest) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  RID rid{0, 0};
+
+  int id_hold = 0;
+  int id_up_fail = 1;
+  int id_upgrade = 2;
+
+  std::promise<void> shared_lock_acquired;
+  std::shared_future<void> lock_future(shared_lock_acquired.get_future());
+
+  Transaction txn_hold{id_hold};
+  txn_mgr.Begin(&txn_hold);
+
+  ASSERT_TRUE(lock_mgr.LockShared(&txn_hold, rid));
+
+  auto upgrade_task = [&]() {
+    Transaction txn_upgrade(id_upgrade);
+    txn_mgr.Begin(&txn_upgrade);
+
+    ASSERT_TRUE(lock_mgr.LockShared(&txn_upgrade, rid));
+    lock_future.wait();
+    ASSERT_TRUE(lock_mgr.LockUpgrade(&txn_upgrade, rid));
+    txn_mgr.Commit(&txn_upgrade);
+    CheckCommitted(&txn_upgrade);
+  };
+  std::thread upgrade_thread{upgrade_task};
+
+  auto up_fail_task = [&]() {
+    // younger transaction acquires the lock of rid_a and wait there
+    Transaction txn_up_fail(id_up_fail);
+    txn_mgr.Begin(&txn_up_fail);
+
+    ASSERT_TRUE(lock_mgr.LockShared(&txn_up_fail, rid));
+    CheckTxnLockSize(&txn_up_fail, 1, 0);
+    shared_lock_acquired.set_value();
+    // wait for a while to let the upgrading task get into the queue
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    try {
+      (void)lock_mgr.LockUpgrade(&txn_up_fail, rid);
+    } catch (TransactionAbortException &e) {
+      ASSERT_EQ(e.GetAbortReason(), AbortReason::UPGRADE_CONFLICT);
+      CheckAborted(&txn_up_fail);
+      // Size shouldn't change here
+      CheckTxnLockSize(&txn_up_fail, 1, 0);
+    }
+    // unlock
+    txn_mgr.Abort(&txn_up_fail);
+  };
+  std::thread up_fail_thread{up_fail_task};
+
+  lock_future.wait();
+  CheckGrowing(&txn_hold);
+  txn_mgr.Commit(&txn_hold);
+  CheckCommitted(&txn_hold);
+
+  upgrade_thread.join();
+  up_fail_thread.join();
+}
 
 }  // namespace bustub
