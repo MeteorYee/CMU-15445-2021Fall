@@ -10,10 +10,7 @@ BusTub is a relational database management system built at [Carnegie Mellon Univ
 **WARNING: IF YOU ARE A STUDENT IN THE CLASS, DO NOT DIRECTLY FORK THIS REPO. DO NOT PUSH PROJECT SOLUTIONS PUBLICLY. THIS IS AN ACADEMIC INTEGRITY VIOLATION AND CAN LEAD TO GETTING YOUR DEGREE REVOKED, EVEN AFTER YOU GRADUATE.**
 
 ## Preface
-This is my attempted implementations to CMU-15445-2021Fall's projects and I did it just for learning database. Viewers should be noted that I DID NOT follow the project's requirement 100%. For example, I tweaked the buffer pool implementation. _If you are a CMU student, my work is not what you want and it won't help you get a perfect grade, although you shouldn't even look at this_ :). However, if you don't go to CMU and have been learning the course recently by yourself, just feel free to communicate with me and take reference to my code (only if you think it's not that bad XD).
-
-## Project 0
-TODO: line coverage report
+This is my attempted implementations to CMU-15445-2021Fall's projects and I did it just for learning database. Viewers should be noted that I DID NOT follow the project's requirement 100%. For example, I tweaked the buffer pool implementation. **_If you are a CMU student, my work is not what you want and it won't help you get a perfect grade, although you shouldn't even look at this_** :). However, if you don't go to CMU and have been learning the course recently by yourself, just feel free to communicate with me and take reference to my code (only if you think it's not that bad XD).
 
 ## Project 1
 ### Test Coverage

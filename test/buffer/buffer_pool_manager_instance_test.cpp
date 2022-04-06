@@ -419,6 +419,7 @@ TEST_F(BufferPoolManagerInstanceTest, SampleTest) {
   EXPECT_EQ(nullptr, bpm_->FetchPage(0));
 }
 
+// NOLINTNEXTLINE
 TEST_F(BufferPoolManagerInstanceTest, MultiThreadFetchTest) {
   Initialize("multithread_test.db", 1024, 4);
 
@@ -459,6 +460,7 @@ TEST_F(BufferPoolManagerInstanceTest, MultiThreadFlushPageTest) {
   MultiThreadFlushPage(page_count_each, false);
 }
 
+// NOLINTNEXTLINE
 TEST_F(BufferPoolManagerInstanceTest, MultiThreadFlushAllTest) {
   Initialize("multithread_test.db", 1024, 4);
   const int page_count_each = static_cast<int>(buffer_pool_size_) / thread_num_;
@@ -486,6 +488,7 @@ TEST_F(BufferPoolManagerInstanceTest, MultiThreadFlushAllTest) {
   bpm_->FlushAllPages();
 }
 
+// NOLINTNEXTLINE
 TEST_F(BufferPoolManagerInstanceTest, DeletePageBasicFunctionTest) {
   Initialize("test.db", 16, 1);
 
@@ -519,6 +522,7 @@ TEST_F(BufferPoolManagerInstanceTest, DeletePageBasicFunctionTest) {
  * by AllocatePage() and then can we fetch it. Here we flush all of the page and then delete and fetch
  * them randomly to pretend the page is reused.
  */
+// NOLINTNEXTLINE
 TEST_F(BufferPoolManagerInstanceTest, MultiThreadDeleteWithFetchPageTest) {
   Initialize("multithread_test.db", 1024, 4);
   const size_t page_count_each = buffer_pool_size_;
@@ -533,6 +537,7 @@ TEST_F(BufferPoolManagerInstanceTest, MultiThreadDeleteWithFetchPageTest) {
   MultiThreadDeleteWithFetchPageRandom();
 }
 
+// NOLINTNEXTLINE
 TEST_F(BufferPoolManagerInstanceTest, MultiThreadDeleteAllPagesTest) {
   Initialize("multithread_test.db", 1024, 4);
   const size_t page_count_each = buffer_pool_size_;

@@ -11,10 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "concurrency/lock_manager.h"
-#include "concurrency/transaction_manager.h"
 
 #include <utility>
 #include <vector>
+
+#include "concurrency/transaction_manager.h"
 
 namespace bustub {
 
@@ -26,7 +27,7 @@ LockManager::LockRequestQueue *LockManager::GetRequestQueue(const RID &rid) {
   return lock_table_[rid].get();
 }
 
-bool LockManager::LockRequestQueue::RequestCompatible(LockRequest &request) {
+bool LockManager::LockRequestQueue::RequestCompatible(const LockRequest &request) {
   if (grant_queue_.empty()) {
     // the request is the first one coming
     return true;
@@ -36,10 +37,7 @@ bool LockManager::LockRequestQueue::RequestCompatible(LockRequest &request) {
   }
   BUSTUB_ASSERT(request.lock_mode_ == LockMode::SHARED, "The lock mode must be SHARED.");
   LockRequest &last_request = grant_queue_.back();
-  if (last_request.lock_mode_ == LockMode::SHARED && last_request.granted_) {
-    return true;
-  }
-  return false;
+  return (last_request.lock_mode_ == LockMode::SHARED && last_request.granted_);
 }
 
 void LockManager::SanityCheck(Transaction *txn, LockMode mode) {
@@ -56,9 +54,9 @@ void LockManager::SanityCheck(Transaction *txn, LockMode mode) {
   }
 }
 
-int LockManager::WoundRequestsInQueue(std::list<LockRequest> &queue, txn_id_t txn_id) {
+int LockManager::WoundRequestsInQueue(std::list<LockRequest> *queue, txn_id_t txn_id) {
   int wound_count = 0;
-  for (auto &req : queue) {
+  for (auto &req : *queue) {
     if (req.txn_id_ == txn_id) {
       // the request won't wound any requests waiting behind itself
       break;
@@ -75,9 +73,9 @@ int LockManager::WoundRequestsInQueue(std::list<LockRequest> &queue, txn_id_t tx
 }
 
 int LockManager::TryWoundYoungerRequests(LockRequestQueue *requests, txn_id_t txn_id) {
-  (void)WoundRequestsInQueue(requests->grant_queue_, txn_id);
+  (void)WoundRequestsInQueue(&requests->grant_queue_, txn_id);
   // we only care about the number of waiting requests that are wounded
-  return WoundRequestsInQueue(requests->wait_queue_, txn_id);
+  return WoundRequestsInQueue(&requests->wait_queue_, txn_id);
 }
 
 void LockManager::WaitInQueue(LockRequestQueue *requests, Transaction *txn, LockMode mode) {
@@ -104,12 +102,12 @@ void LockManager::WaitInQueue(LockRequestQueue *requests, Transaction *txn, Lock
   }
   requests->wait_queue_.pop_front();
   lock_request.granted_ = true;
-  requests->grant_queue_.push_back(std::move(lock_request));
+  requests->grant_queue_.push_back(lock_request);
 }
 
 bool LockManager::LockShared(Transaction *txn, const RID &rid) {
   SanityCheck(txn, LockMode::SHARED);
-  if (txn->GetSharedLockSet()->count(rid) || txn->GetExclusiveLockSet()->count(rid)) {
+  if (txn->GetSharedLockSet()->count(rid) > 0 || txn->GetExclusiveLockSet()->count(rid) > 0) {
     // the lock is re-entring
     return true;
   }
@@ -120,7 +118,7 @@ bool LockManager::LockShared(Transaction *txn, const RID &rid) {
 
 bool LockManager::LockExclusive(Transaction *txn, const RID &rid) {
   SanityCheck(txn, LockMode::EXCLUSIVE);
-  if (txn->GetExclusiveLockSet()->count(rid)) {
+  if (txn->GetExclusiveLockSet()->count(rid) > 0) {
     // the lock is re-entring
     return true;
   }
@@ -131,7 +129,7 @@ bool LockManager::LockExclusive(Transaction *txn, const RID &rid) {
 
 bool LockManager::LockUpgrade(Transaction *txn, const RID &rid) {
   SanityCheck(txn, LockMode::EXCLUSIVE);
-  if (txn->GetExclusiveLockSet()->count(rid)) {
+  if (txn->GetExclusiveLockSet()->count(rid) > 0) {
     // the lock is re-entring
     return true;
   }
@@ -205,10 +203,9 @@ bool LockManager::Unlock(Transaction *txn, const RID &rid) {
   }
   if (has_found) {
     return true;
-  } else {
-    LOG_WARN("Didn't find the request specified in unlock.");
-    return false;
   }
+  LOG_WARN("Didn't find the request specified in unlock.");
+  return false;
 }
 
 }  // namespace bustub

@@ -40,7 +40,7 @@ class LockManager {
     LockRequest(txn_id_t txn_id, LockMode lock_mode)
         : txn_id_(txn_id), lock_mode_(lock_mode), granted_(false), wounded_{false} {}
 
-    bool operator==(const LockRequest &lr) const { return txn_id_ == lr.txn_id_ && lock_mode_ == lr.lock_mode_; };
+    bool operator==(const LockRequest &lr) const { return txn_id_ == lr.txn_id_ && lock_mode_ == lr.lock_mode_; }
     bool operator!=(const LockRequest &lr) const { return !operator==(lr); }
 
     txn_id_t txn_id_;
@@ -57,7 +57,7 @@ class LockManager {
      * @param request the lock request
      * @return true if they are compatible, or false otherwise
      */
-    bool RequestCompatible(LockRequest &request);
+    bool RequestCompatible(const LockRequest &request);
 
     std::list<LockRequest> grant_queue_;
     std::list<LockRequest> wait_queue_;
@@ -144,7 +144,7 @@ class LockManager {
    * @param txn_id the id of the transaction that executes the wounding
    * @return the number of wounded requests
    */
-  int WoundRequestsInQueue(std::list<LockRequest> &queue, txn_id_t txn_id);
+  int WoundRequestsInQueue(std::list<LockRequest> *queue, txn_id_t txn_id);
 
   /**
    * Given some requests and try to wound them.
